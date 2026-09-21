@@ -85,6 +85,16 @@ def contains_term(text: str, term: str) -> bool:
     return re.search(rf"\b{re.escape(term)}\b", text) is not None
 
 
+def matches_dish(title: str, dishes: list) -> bool:
+    """Word-boundary match for dish names.
+
+    Substring matching looks fine until you notice "lassi" is inside
+    "c-lassi-c", which quietly filed a Greek salad, a Chinese dessert and an
+    Italian cake as Punjabi. Same lesson as the eggplant trap, one layer up.
+    """
+    return any(contains_term(title, dish) for dish in dishes)
+
+
 def build() -> pd.DataFrame:
     df = pd.read_csv(paths.RAW_DIR / "IndianFoodDataset.csv")
     start = len(df)
@@ -108,12 +118,16 @@ def build() -> pd.DataFrame:
     cuisine_lc = df["Cuisine"].str.lower()
     title_lc = df["TranslatedRecipeName"].str.lower()
 
-    is_guj = cuisine_lc.str.contains("gujarat") | title_lc.apply(
-        lambda t: any(d in t for d in GUJARATI_DISHES))
-    is_pun = (cuisine_lc.str.contains("punjab") | title_lc.apply(
-        lambda t: any(d in t for d in PUNJABI_DISHES))) & ~is_guj
     is_indian = cuisine_lc.apply(
         lambda c: any(k in c for k in INDIAN_CUISINE_KEYWORDS))
+
+    # A dish name only promotes a recipe if the cuisine is Indian too.
+    # Otherwise "Gujarati Dhokla Pizza" (Fusion) and "Mango Shrikhand Taco"
+    # (Mexican) land in a corpus that promises Gujarati and Punjabi food.
+    is_guj = cuisine_lc.str.contains("gujarat") | (
+        is_indian & title_lc.apply(lambda t: matches_dish(t, GUJARATI_DISHES)))
+    is_pun = (cuisine_lc.str.contains("punjab") | (
+        is_indian & title_lc.apply(lambda t: matches_dish(t, PUNJABI_DISHES)))) & ~is_guj
 
     df["region"] = "other"
     df.loc[is_pun, "region"] = "Punjabi"
@@ -135,6 +149,10 @@ def build() -> pd.DataFrame:
     })
     df = df[["name", "ingredients", "instructions", "cuisine", "course",
              "diet", "region", "tier", "total_time_mins", "servings", "url"]]
+    # A recipe with no ingredients cannot be matched against a pantry, and
+    # its NaN propagates into every derived string.
+    df = df[df["ingredients"].str.strip().astype(bool)].copy()
+
     before_lang = len(df)
     # Check all three text columns: some rows have English ingredients but
     # Hindi instructions, which would surface as Hindi cooking steps.

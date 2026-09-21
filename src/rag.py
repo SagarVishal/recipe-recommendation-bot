@@ -103,14 +103,30 @@ class RecipeRAG:
             if meta.read_text().strip() == fingerprint:
                 return np.load(paths.VECTORS_NPY)
 
-        texts = self.core["search_text"].tolist()
+        texts = [str(t) for t in self.core["search_text"].tolist()]
+        blank = [i for i, t in enumerate(texts) if not t.strip()]
+        if blank:
+            raise ValueError(
+                f"{len(blank)} recipes have empty search text (rows {blank[:5]}). "
+                "Rebuild the corpus with: python -m src.build_corpus"
+            )
+
         vectors: List[List[float]] = []
         batch = 50
-        for start in range(0, len(texts), batch):
+        partial = paths.PROCESSED_DIR / "vectors.partial.npy"
+        if partial.exists():
+            # A previous run died part-way; pick up where it stopped.
+            done = np.load(partial)
+            if done.shape[0] < len(texts):
+                vectors = done.tolist()
+
+        for start in range(len(vectors), len(texts), batch):
             chunk = texts[start:start + batch]
             vectors.extend(self.embeddings.embed_documents(chunk))
+            np.save(partial, np.asarray(vectors, dtype=np.float32))
             if progress:
                 progress(min(start + batch, len(texts)), len(texts))
+        partial.unlink(missing_ok=True)
 
         array = np.asarray(vectors, dtype=np.float32)
         array /= np.linalg.norm(array, axis=1, keepdims=True)  # unit length

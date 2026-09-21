@@ -76,6 +76,11 @@ def load_recipes(core_only: bool = True) -> pd.DataFrame:
             f"{path.name} is missing. Run: python -m src.build_corpus"
         )
     df = pd.read_csv(path)
+    # Defensive: one NaN anywhere turns the concatenation below into a float,
+    # and the embedding API then fails with "expected string or bytes-like
+    # object" a hundred recipes into the batch.
+    for column in ("name", "ingredients", "cuisine", "course", "region"):
+        df[column] = df[column].fillna("").astype(str)
     df["entities"] = df["ingredients"].map(parse_ingredients)
     df["search_text"] = (
         df["name"] + "\nCuisine: " + df["cuisine"] + " (" + df["region"] + ")"

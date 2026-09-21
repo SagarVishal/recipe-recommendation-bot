@@ -54,3 +54,25 @@ def test_everything_is_in_english(core):
 
 def test_every_recipe_keeps_its_attribution(core):
     assert core.url.notna().all()
+
+
+def test_no_non_indian_cuisines_leaked_into_the_core(core):
+    """'lassi' is a substring of 'c-lassi-c', which once filed a Greek salad
+    and a Chinese dessert as Punjabi. Word-boundary matching fixed it."""
+    indian = (
+        "indian", "punjab", "gujarat", "rajasth", "maharash", "bengali",
+        "kerala", "tamil", "karnataka", "andhra", "goan", "sindhi", "kashmiri",
+        "awadhi", "chettinad", "parsi", "oriya", "hyderab", "mangalor",
+        "malvani", "konkan", "coorg", "bihari", "assam", "sattvic", "uttar",
+        "haryana", "himachal", "delhi", "mughlai", "lucknowi", "udupi",
+        "north east",
+    )
+    leaked = core[~core.cuisine.str.lower().apply(
+        lambda c: any(k in c for k in indian))]
+    assert leaked.empty, f"non-Indian cuisines in core: {list(leaked.cuisine.unique())}"
+
+
+def test_every_recipe_has_ingredients(core):
+    """A NaN here propagates into search_text and breaks the embedding call."""
+    assert core.ingredients.notna().all()
+    assert (core.ingredients.str.strip() != "").all()
