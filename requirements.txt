@@ -1,0 +1,14 @@
+# Core data handling
+pandas>=2.0
+pyarrow>=14.0          # parquet read/write
+pyyaml>=6.0            # config files: dish lists, ingredient blocklist
+
+# Retrieval
+sentence-transformers>=2.2   # MiniLM embeddings, CPU only
+numpy>=1.24                  # brute-force cosine; no vector DB at this scale
+
+# Interface
+streamlit>=1.30
+
+# Development
+pytest>=7.0

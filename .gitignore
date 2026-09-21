@@ -1,9 +1,17 @@
+# Data is rebuildable from source; never commit it
+data/raw/
+data/processed/
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environment and editors
 .env
 .DS_Store
-.ipynb_checkpoints/
-data/raw/
-*.log
+.idea/
+.vscode/

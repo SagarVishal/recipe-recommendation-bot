@@ -1,0 +1,20 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        # The heavy ML dependencies aren't needed to run the unit tests,
+        # so CI installs only what the tests import. Keeps runs under a minute.
+        run: pip install pytest pandas pyarrow pyyaml numpy
+      - run: python -m pytest tests -q
