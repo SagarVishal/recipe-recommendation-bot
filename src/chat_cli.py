@@ -24,8 +24,12 @@ def main() -> None:
 
     print("Loading corpus…")
     engine = RecipeRAG()
+    print("  (first run embeds the corpus, paced under Gemini's free-tier"
+          " limit — a few minutes, then cached)")
     engine._core_vectors = engine.build_index(
-        progress=lambda d, t: print(f"\r  embedding {d}/{t}…", end="", flush=True))
+        progress=lambda d, t: print(
+            f"\r  embedding {d}/{t} — ~{int((t - d) * 60 / 85 // 60)}m"
+            f" {int((t - d) * 60 / 85 % 60)}s left   ", end="", flush=True))
     print(f"\r{len(engine.core)} Gujarati & Punjabi recipes ready."
           f" ({len(engine.fallback)} more as fallback)        ")
     print("Tell me what's in your kitchen. Ctrl-C or 'quit' to stop.\n")

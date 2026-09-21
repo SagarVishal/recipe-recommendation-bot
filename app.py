@@ -45,11 +45,21 @@ def get_engine():
     from src.models import chat_model, embed_model
     st.session_state["models"] = (embed_model(), chat_model())
     bar = st.progress(0.0, text="Embedding the recipe corpus (first run only)…")
-    engine._core_vectors = engine.build_index(
-        progress=lambda done, total: bar.progress(done / total,
-                                                  text=f"Embedding {done}/{total} recipes…")
+    note = st.caption(
+        "Paced to stay under Gemini's free-tier limit of 100 requests/minute. "
+        "Takes a few minutes once; after that it's cached and startup is instant. "
+        "Progress is saved, so an interruption resumes rather than restarting."
     )
+
+    def show(done: int, total: int) -> None:
+        remaining = (total - done) * 60.0 / 85
+        bar.progress(done / total,
+                     text=f"Embedding {done}/{total} recipes — about "
+                          f"{int(remaining // 60)}m {int(remaining % 60)}s left…")
+
+    engine._core_vectors = engine.build_index(progress=show)
     bar.empty()
+    note.empty()
     return engine
 
 

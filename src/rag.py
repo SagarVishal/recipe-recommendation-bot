@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -30,6 +32,13 @@ REGION_PRIOR = {"Gujarati": 1.0, "Punjabi": 0.4}
 # Below this, tier 1 has nothing worth offering and we widen - and say so.
 FALLBACK_THRESHOLD = 0.34
 CANDIDATES = 5
+
+# Gemini's free tier allows 100 embed requests per minute, and the client
+# sends one request per document - so a 275-recipe corpus hits the wall at
+# exactly 100. Pace below the limit rather than sprinting into a 429.
+EMBED_REQUESTS_PER_MINUTE = 85
+EMBED_BATCH = 20
+MAX_RETRIES = 6
 
 SYSTEM_PROMPT = """You are a warm, practical cooking assistant for Gujarati \
 and Punjabi vegetarian food. The corpus is eggless and lacto-vegetarian.
@@ -112,7 +121,8 @@ class RecipeRAG:
             )
 
         vectors: List[List[float]] = []
-        batch = 50
+        batch = EMBED_BATCH
+        pause = 60.0 / EMBED_REQUESTS_PER_MINUTE * batch   # seconds per batch
         partial = paths.PROCESSED_DIR / "vectors.partial.npy"
         if partial.exists():
             # A previous run died part-way; pick up where it stopped.
@@ -122,10 +132,13 @@ class RecipeRAG:
 
         for start in range(len(vectors), len(texts), batch):
             chunk = texts[start:start + batch]
-            vectors.extend(self.embeddings.embed_documents(chunk))
+            began = time.monotonic()
+            vectors.extend(self._embed_with_retry(chunk))
             np.save(partial, np.asarray(vectors, dtype=np.float32))
             if progress:
                 progress(min(start + batch, len(texts)), len(texts))
+            if start + batch < len(texts):
+                time.sleep(max(0.0, pause - (time.monotonic() - began)))
         partial.unlink(missing_ok=True)
 
         array = np.asarray(vectors, dtype=np.float32)
@@ -134,6 +147,32 @@ class RecipeRAG:
         np.save(paths.VECTORS_NPY, array)
         meta.write_text(fingerprint)
         return array
+
+    def _embed_with_retry(self, chunk: List[str]) -> List[List[float]]:
+        """Embed a batch, backing off when the API says we are going too fast.
+
+        A 429 carries a retry_delay; honour it when present, otherwise double
+        the wait each attempt. Anything that is not a rate limit is raised
+        immediately - retrying a bad request just wastes time.
+        """
+        delay = 5.0
+        for attempt in range(MAX_RETRIES):
+            try:
+                return self.embeddings.embed_documents(chunk)
+            except Exception as error:  # noqa: BLE001 - the client wraps many types
+                message = str(error)
+                if "429" not in message and "quota" not in message.lower():
+                    raise
+                if attempt == MAX_RETRIES - 1:
+                    raise RuntimeError(
+                        "Gemini rate limit hit repeatedly. Progress is saved - "
+                        "wait a minute and start the app again to resume."
+                    ) from error
+                match = re.search(r"seconds:\s*(\d+)", message)
+                wait = float(match.group(1)) + 1 if match else delay
+                time.sleep(wait)
+                delay *= 2
+        return []
 
     @property
     def vectors(self) -> np.ndarray:
