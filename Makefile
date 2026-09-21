@@ -1,30 +1,23 @@
-.PHONY: help install data run eval test clean
+.PHONY: help install data notebook test clean
 
 help:
-	@echo "install  install dependencies"
-	@echo "data     download, filter, classify and embed the corpus"
-	@echo "run      launch the chat interface"
-	@echo "eval     run the evaluation suite"
-	@echo "test     run unit tests"
-	@echo "clean    remove processed data (keeps the raw download)"
+	@echo "install   install dependencies"
+	@echo "data      rebuild the curated corpus from the raw dataset"
+	@echo "notebook  launch the workshop notebook"
+	@echo "test      run unit tests"
+	@echo "clean     remove the raw download (the curated CSVs are committed)"
 
 install:
 	pip3 install -r requirements.txt
 
 data:
-	python3 -m src.ingest
-	python3 -m src.cuisine
-	python3 -m src.normalise
-	python3 -m src.embed
+	python3 -m src.build_corpus
 
-run:
-	streamlit run app.py
-
-eval:
-	python3 -m eval.evaluate
+notebook:
+	jupyter notebook notebooks/recipe_rag_workshop.ipynb
 
 test:
 	python3 -m pytest tests -q
 
 clean:
-	rm -f data/processed/*
+	rm -f data/raw/*.csv

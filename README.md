@@ -1,147 +1,153 @@
-# Gujarati Recipe Bot
+# 🍲 Gujarati Recipe Bot — a practical RAG workshop
 
-> Tell it what's in your pantry, it tells you what you can actually cook tonight — ranked by how little you're missing, not by how similar the text looks.
+> Tell it what's in your pantry, it tells you what you can actually cook tonight — grounded in a real recipe corpus, so it can't invent dishes that don't exist.
 
-A domain-specific chatbot over **Gujarati** cuisine, with **Punjabi** as a secondary cuisine. Lacto-vegetarian and eggless throughout. Built for the POD exercise.
+A domain-specific RAG chatbot over **Gujarati** cuisine (with Punjabi as a secondary), lacto-vegetarian and eggless throughout. Built as a teaching notebook: **Python + LangChain + Google Gemini**.
 
-**Status:** in development — see [`docs/PLAN.md`](docs/PLAN.md) for the build plan.
+**▶ Start here: [`notebooks/recipe_rag_workshop.ipynb`](notebooks/recipe_rag_workshop.ipynb)**
 
 ---
-
-## The problem this solves
-
-Ask most recipe search engines what you can make with *besan, curd, ginger and green chilli* and they rank by text similarity. That's the wrong question.
-
-Cosine similarity is symmetric. A 16-ingredient undhiyu that happens to contain all four of your items scores beautifully — and you can't cook it, because you're missing twelve things. A four-ingredient Gujarati kadhi you *can* cook scores lower.
-
-The question a hungry person is actually asking is not *"which recipe is most similar to my ingredients?"* but *"which recipe is most **covered** by my ingredients?"* Those are different questions, and only the second is asymmetric.
-
-```
-coverage = |pantry ∩ recipe| / |recipe|
-```
-
-Dividing by the recipe's size, not the pantry's, is what punishes the undhiyu correctly.
-
-The full ranking adds a semantic term, a penalty for missing items, and a regional prior that puts Gujarati first:
-
-```
-score = w₁·coverage + w₂·similarity − w₃·(missing/k) + w₄·regional_prior
-```
-
-| Cuisine | Prior |
-|---|---|
-| Gujarati | 1.0 |
-| Punjabi | 0.4 |
-| Tier 2 (see below) | 0 |
-
-The prior is capped so it can never overturn a large coverage gap. A Gujarati dish you can't cook must not outrank a Punjabi one you can. Cookability wins; the prior breaks near-ties.
-
-## Scope and the two tiers
-
-| Tier | Contents | Recipes |
-|---|---|---|
-| **1 — core** | Gujarati (152) + Punjabi (232) | **384** |
-| 2 — fallback | Other Indian vegetarian eggless | 3,848 |
-
-Tier 1 is the bot's world. Tier 2 exists so it never dead-ends.
-
-384 recipes is a small corpus, and with a median of 13 ingredients each, plenty of pantries won't cover anything in it well. A strict Gujarati-and-Punjabi-only bot would answer *"nothing matches"* often enough to be useless. So when no tier-1 recipe clears the coverage threshold, the bot says so and offers the nearest tier-2 match, **explicitly labelled as outside your cuisines**:
-
-> Nothing Gujarati or Punjabi matches what you have. The closest is a **Rajasthani** gatte ki sabzi — you have 5 of 6 ingredients.
-
-Never a silent substitution. The user always knows which tier an answer came from, and tier 2 never appears when tier 1 has something cookable.
-
-## Recovering mislabelled recipes
-
-By the `Cuisine` column alone, this dataset has **191** Gujarati and Punjabi vegetarian recipes. That undercounts badly, because the labelling is inconsistent — *dal dhokli* and *onion thepla* sit under `North Indian Recipes`, *dhania chole masala* under plain `Indian`.
-
-Matching a curated list of canonical dish names against recipe titles recovers them, taking the core from **191 to 384**. Where the extra 193 were hiding:
-
-| Label they were filed under | Recovered |
-|---|---|
-| North Indian Recipes | 129 |
-| Indian | 58 |
-| Rajasthani | 17 |
-| Maharashtrian Recipes | 12 |
-
-The dish list is deliberately conservative. Loosening it to pan-Indian terms like *pakora*, *kadhi* and *stuffed paratha* pushes the count to roughly 466, but those dishes belong to several cuisines at once — Gujarati kadhi, Punjabi kadhi pakora and Sindhi kadhi are all real. Claiming them all as Gujarati or Punjabi would be inflating the number rather than improving the corpus.
-
-### The BOM in the cuisine column
-
-Every Gujarati row is spelled `'Gujarati Recipes﻿'` — with a byte-order mark glued to the end:
-
-```python
-df[df.Cuisine == "Gujarati Recipes"]    # 0 rows
-df[df.Cuisine.str.contains("Gujarati")] # 152 rows
-```
-
-The obvious equality check silently returns nothing, and nothing errors. Cuisine values are normalised — BOM and zero-width characters stripped, whitespace collapsed — before any comparison, with a unit test pinning the count so it can't regress.
-
-## Dietary scope
-
-**Lacto-vegetarian.** Dairy is in, egg is out. 201 of the 384 core recipes use dairy, which is unsurprising for two cuisines built on curd, ghee and paneer. `vegan` remains available as an opt-in query filter.
-
-### Why the `Diet` column isn't trusted
-
-- **The non-veg label is misspelled.** 427 rows read `Non Vegeterian`. A filter written as `Diet != "Non Vegetarian"` lets every one through.
-- **55 recipes labelled `Vegetarian` contain meat or fish** — *Singapore Style Chicken Layered Fried Rice*, *Andaman Style Steamed Garlic Prawns*, *Baked Fish In Coconut Milk*.
-- **423 recipes labelled `Vegetarian` contain egg**, so the separate `Eggetarian` label is applied inconsistently.
-
-The label is a weak first pass; an ingredient blocklist in [`config/excluded_ingredients.yaml`](config/excluded_ingredients.yaml) is the real gate.
-
-### The eggplant problem
-
-Excluding egg looks like a substring check. Measured: `"egg" in text` drops **143 recipes, 119 of which contain no egg at all** — they're aubergine dishes, because brinjal's listed synonyms include "Eggplant". Word-boundary matching on parsed entities drops 29 instead, and correctly keeps the recipes whose names contain *egg**less***.
-
-Same lesson as the meat blocklist, from the other direction: **match parsed entities, never raw strings.**
-
-## How it works
-
-```
-Archana's Kitchen dataset (6,871 recipes)
-        ↓  diet filter + ingredient blocklist + egg exclusion
-        ↓  cuisine normalisation + dish-name recovery
-   tier 1: 384 Gujarati & Punjabi    tier 2: 3,848 other Indian
-        ↓  parse ingredients → normalised entities
-        ↓  embed (MiniLM-L6-v2, 384-dim)
-        ↓
-   user message → parse pantry → tier-1 recall → coverage re-rank
-                → threshold met?  yes → answer
-                                  no  → tier-2 fallback, labelled
-```
-
-At this corpus size a brute-force cosine runs in about 3 ms, so there's no vector database and no need for one. The two stages earn their place on **capability**, not speed: coverage scoring needs exact set membership and can't parse *"something light for dinner"*; semantic search has no notion of what's missing from your kitchen.
-
-No LLM API anywhere in the loop. Everything runs locally on CPU.
-
-## Source
-
-[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), crawled from [Archana's Kitchen](https://www.archanaskitchen.com/); [CSV mirror](https://github.com/nileshely/Indian-Food).
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-make data      # download, filter, classify, embed
-make run       # launch the chat interface
+cp .env.example .env          # then paste your key into it
+jupyter notebook notebooks/recipe_rag_workshop.ipynb
 ```
 
-## Project structure
+Get a free Gemini API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). `.env` is gitignored; if it's missing the notebook prompts for the key at runtime instead.
+
+## What the notebook covers
+
+| # | Section | Concept |
+|---|---|---|
+| 1 | AI Frameworks | Why LangChain rather than raw HTTP |
+| 2 | Configure the LLM | Gemini through a swappable wrapper |
+| 3 | LLM Parameters | Temperature, token limits, what to tune first |
+| 4 | Basic Chatbot | System prompts, and why an ungrounded bot guesses |
+| 5 | History & Memory | Memory is a list you resend — there is no server-side state |
+| 6 | Introduce RAG | Embeddings, with measured similarity between *brinjal* and *aubergine* |
+| 7 | Small RAG System | Load → embed → retrieve → generate, plus grounding tests |
+| 8 | Final System | Coverage re-ranking, regional weighting, graceful fallback |
+
+## The RAG approach
+
+This is a **Retrieval-Augmented Generation** system: Gemini never answers from what it absorbed in training. It answers from recipes we retrieve and place in the prompt, which makes the corpus the authority on facts and the model merely the authority on phrasing.
 
 ```
-src/ingest.py      download → filter → parquet
-src/cuisine.py     normalisation, dish-name recovery, tiering
-src/normalise.py   ingredient parsing, synonyms, vocabulary
-src/embed.py       build the vector index
-src/query.py       parse a message into pantry + filters
-src/retrieve.py    tier-1 search, coverage re-rank, tier-2 fallback
-src/respond.py     format results into replies
-eval/              test queries, baseline vs re-ranked
-config/            dish lists and the excluded-ingredient blocklist
+                 ┌──────────────── INDEXING (once) ─────────────────┐
+  6,871 rows ──▶ filter & clean ──▶ 301 docs ──▶ Gemini embeddings ──▶ vector store
+                 └──────────────────────────────────────────────────┘
+
+                 ┌──────────────── QUERY (per message) ─────────────┐
+  "I have besan     parse pantry ──▶ semantic retrieval (top-k)
+   and curd"              │                     │
+                          └──▶ coverage re-rank ┘
+                                     │
+                          candidates + computed coverage
+                                     │
+                          Gemini, instructed to use ONLY these
+                                     │
+                                  grounded answer
 ```
 
-`src/` never imports the UI framework. The retrieval engine is a library; the interface is a thin caller.
+### The three stages
+
+| Stage | Component | What it does |
+|---|---|---|
+| **Retrieve** | `InMemoryVectorStore` + `text-embedding-004` | Embeds the question, returns the nearest recipe documents by cosine similarity |
+| **Augment** | `ChatPromptTemplate` | Injects those recipes into the system prompt as `{context}`, with computed coverage figures alongside each |
+| **Generate** | `ChatGoogleGenerativeAI`, `temperature=0.0` | Phrases a reply constrained to the supplied context |
+
+**Chunking:** one document per recipe. The data provides a natural boundary, so there's no fixed-size splitting and no chunk ever straddles two dishes. Each document holds name, cuisine, course and ingredients; instructions and URL ride along as metadata.
+
+**Vector store:** in-memory, brute-force cosine over 301 × 768 floats — a few milliseconds. FAISS or Chroma would earn their place somewhere past ~100k documents or when the index must outlive the process. Using one here and calling it architecture is the kind of thing reviewers notice.
+
+**Retrieval is only half the system.** Plain top-k similarity returns recipes that *sound* like the query; the coverage re-ranker orders them by what's actually cookable. See below for why that distinction is the heart of this project.
+
+### Keeping it grounded
+
+Three controls, and the notebook demonstrates each failing safely:
+
+1. **Instruction** — the system prompt says answer only from the supplied recipes, and say so plainly when they don't cover the question.
+2. **`temperature=0.0`** — the bot reports facts from a corpus. Creativity here is indistinguishable from fabrication.
+3. **Numbers computed, not generated** — coverage percentages and missing-ingredient lists are calculated in Python and handed to the model as text. Gemini is never asked to count.
+
+Asked *"how do I make chicken biryani?"* the bot declines: there are no chicken recipes in the corpus. Asked *"what is the capital of France?"* it declines too, though Gemini certainly knows. **A RAG system that answers everything confidently hasn't been tested** — showing it refuse is what proves the grounding is real.
+
+## The idea worth stealing
+
+Ask a recipe search what you can make with *besan, curd, ginger, green chilli* and it ranks by text similarity. That's the wrong question.
+
+Cosine similarity is **symmetric**. A sixteen-ingredient undhiyu containing all four of your items scores beautifully — and you can't cook it, because you're missing twelve things. A four-ingredient kadhi you *can* cook scores lower.
+
+The real question isn't *"which recipe is most similar to my ingredients?"* but *"which recipe is most **covered** by my ingredients?"*
+
+```
+coverage = |pantry ∩ recipe| / |recipe|
+```
+
+Dividing by the **recipe's** size, not the pantry's, is the whole trick — it's asymmetric, and it punishes long recipes you can't finish. Final ranking:
+
+```
+score = 0.55·coverage + 0.25·similarity − 0.05·(missing/k) + 0.15·regional_prior
+```
+
+Semantic retrieval provides **recall** (survives "aubergine" vs "brinjal", handles *"something light for dinner"*). Coverage re-ranking provides **precision**. Neither stage can do the other's job — that's why there are two.
+
+## The corpus
+
+[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), from [Archana's Kitchen](https://www.archanaskitchen.com/) ([CSV mirror](https://github.com/nileshely/Indian-Food)). Rebuild with `python3 -m src.build_corpus`.
+
+| Stage | Recipes |
+|---|---|
+| Raw dataset | 6,871 |
+| Vegetarian diet labels | 5,875 |
+| After ingredient blocklist | 5,620 |
+| Untranslated rows dropped | −719 |
+| **Tier 1 — Gujarati 132 + Punjabi 169** | **301** |
+| Tier 2 — other Indian, labelled fallback | 3,164 |
+
+Tier 1 is the bot's world. Tier 2 exists so it never dead-ends: when nothing in Gujarati or Punjabi clears the coverage threshold, the bot says so and offers the nearest alternative, **explicitly labelled**. Never a silent substitution.
+
+## Four things the data got wrong
+
+Every one of these would have passed code review. None threw an error.
+
+**1. The diet label is misspelled.** 427 rows read `Non Vegeterian`. A filter written as `Diet != "Non Vegetarian"` lets every one through.
+
+**2. The diet label is wrong anyway.** 55 recipes labelled `Vegetarian` contain meat or fish — *Singapore Style Chicken Layered Fried Rice*, *Andaman Style Steamed Garlic Prawns*, *Baked Fish In Coconut Milk*. 423 more contain egg despite a separate `Eggetarian` label existing. So the label is a weak first pass and [`config/excluded_ingredients.yaml`](config/excluded_ingredients.yaml) is the real gate.
+
+**3. A byte-order mark hides every Gujarati recipe.** Each one is spelled `'Gujarati Recipes﻿'`:
+
+```python
+df[df.Cuisine == "Gujarati Recipes"]     # 0 rows
+df[df.Cuisine.str.contains("Gujarati")]  # 132 rows
+```
+
+Written the obvious way, the Gujarati weighting would have done nothing, silently.
+
+**4. 719 rows were never translated.** Devanagari text sits in the `Translated...` columns. Some have English ingredients but Hindi *instructions*, so they parse cleanly and then hand the user cooking steps they may not read. This surfaced as *12% of recipes parsing to zero ingredients* — it looked like a parser bug, and chasing the symptom found a data problem.
+
+### The pattern
+
+`"egg" in text` drops 143 recipes and **119 contain no egg** — they're aubergine dishes, because the dataset lists brinjal's synonyms and one of them is "Eggplant". Word-boundary matching on parsed entities drops 29 instead, and correctly keeps the recipes whose names contain *egg**less***.
+
+Same lesson as the meat blocklist, arriving from the other direction: **match parsed entities, never raw strings.** And the error budget is asymmetric on purpose — wrongly dropping a valid recipe costs one row out of 301; wrongly keeping a meat or egg recipe breaks the premise of the bot.
+
+## Repository layout
+
+```
+notebooks/recipe_rag_workshop.ipynb   the deliverable — 45 cells, 8 sections
+src/build_corpus.py                   6,871 raw rows → 301 curated
+src/paths.py                          every filesystem path, in one place
+config/excluded_ingredients.yaml      the blocklist, readable and arguable
+data/recipes_core.csv                 tier 1, committed so the notebook just runs
+data/recipes_all.csv                  tier 1 + tier 2 fallback
+tests/                                corpus invariants
+```
 
 ## Licence and attribution
 
-Recipe data is sourced from Archana's Kitchen and used here for a non-commercial educational exercise. Every recipe surfaced by the bot links back to its original page.
+Recipe data is from Archana's Kitchen, used here for a non-commercial educational exercise. Every recipe the bot surfaces links back to its original page.

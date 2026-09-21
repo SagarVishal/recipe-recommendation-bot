@@ -1,0 +1,102 @@
+# Ingredients that disqualify a recipe from this corpus.
+# Matched against PARSED ingredient entities with word boundaries - never as
+# raw substrings. A substring match on "egg" drops 143 recipes, 119 of which
+# are aubergine dishes whose ingredient list spells brinjal "Eggplant".
+#
+# Error budget is asymmetric on purpose: wrongly dropping a valid recipe
+# costs one row; wrongly keeping a meat or egg recipe breaks the premise.
+
+meat:
+  - chicken
+  - mutton
+  - lamb
+  - beef
+  - pork
+  - ham
+  - bacon
+  - pancetta
+  - lardon
+  - salami
+  - sausage
+  - pepperoni
+  - turkey
+  - duck
+  - veal
+  - venison
+  - keema            # guarded by allow_titles below - soya/paneer keema is veg
+
+seafood:
+  - fish
+  - prawn
+  - shrimp
+  - crab
+  - lobster
+  - squid
+  - octopus
+  - anchovy
+  - salmon
+  - tuna
+  - mackerel
+  - sardine
+  - oyster
+  - mussel
+  - clam
+  - scallop
+  - caviar
+  - roe
+
+hidden_animal:
+  # The dangerous ones: no meat in the dish name, animal product in the jar.
+  - chicken stock
+  - chicken broth
+  - beef stock
+  - beef broth
+  - meat stock
+  - bone broth
+  - fish sauce
+  - oyster sauce
+  - worcestershire sauce
+  - shrimp paste
+  - gelatin
+  - gelatine
+  - isinglass
+  - rennet
+  - lard
+  - suet
+  - tallow
+  - dripping
+  - collagen
+
+egg:
+  - egg
+  - eggs
+  - egg white
+  - egg yolk
+  - albumen
+  - mayonnaise
+  - mayo
+  - meringue
+
+# Titles containing an excluded word that are nonetheless vegetarian.
+# These are vegetarian dishes named after a meat preparation.
+allow_titles:
+  - soya keema
+  - paneer keema
+  - matar keema
+  - veg keema
+  - mushroom keema
+  - eggless
+  - egg-free
+  - egg free
+  - no egg
+  - without egg
+  - mock meat
+  - soya chunk
+
+# Words that contain an excluded term as a substring but are not it.
+# Documented so the reason this list exists is never lost.
+false_friends:
+  - eggplant
+  - eggless
+  - fish mint          # a herb (Houttuynia cordata)
+  - hamburger bun      # the bun, not the burger

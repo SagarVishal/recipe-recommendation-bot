@@ -15,6 +15,11 @@ RAW_CSV = RAW_DIR / "indian_food.csv"
 RECIPES_PARQUET = PROCESSED_DIR / "recipes.parquet"
 VECTORS_NPY = PROCESSED_DIR / "vectors.npy"
 
+# Curated corpora committed to the repo so the notebook runs without the 24 MB raw file.
+DATA_DIR = ROOT / "data"
+CORE_CSV = DATA_DIR / "recipes_core.csv"      # tier 1: Gujarati + Punjabi
+FULL_CSV = DATA_DIR / "recipes_all.csv"       # tier 1 + tier 2 fallback
+
 DISHES_YAML = CONFIG_DIR / "dishes.yaml"
 EXCLUDED_INGREDIENTS_YAML = CONFIG_DIR / "excluded_ingredients.yaml"
 
