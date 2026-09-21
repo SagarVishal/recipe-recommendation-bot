@@ -1,19 +1,23 @@
-"""Pick Gemini models that this API key actually supports, at runtime.
+"""Pick the best Gemini models this API key supports, at runtime.
 
-Google retires model names on its own schedule - `text-embedding-004` was
-replaced by `gemini-embedding-001`, and a hardcoded name turns into a 404
-months later with a confusing message. So we ask the API what it has and
-choose from a preference list, which also means this works unchanged on
-whatever is current when someone clones the repo.
+Google ships and retires model names constantly - `text-embedding-004` was
+replaced by `gemini-embedding-001`, and any hardcoded name eventually 404s
+with a confusing message. Worse, a fixed preference list silently pins you
+to an old model long after better ones land on your account.
 
-Override either choice with GEMINI_EMBED_MODEL / GEMINI_CHAT_MODEL.
+So this asks the API what exists, discards everything that isn't a
+general-purpose text model, and picks the highest version number. It keeps
+working as Google rotates names, and it keeps up as they ship new ones.
 
-    python -m src.models      # print what your key supports
+Override with GEMINI_EMBED_MODEL / GEMINI_CHAT_MODEL in .env.
+
+    python -m src.models      # show what your key supports and what wins
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from functools import lru_cache
@@ -21,20 +25,12 @@ from typing import List, Tuple
 
 _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 
-# Best first. Anything not present is skipped.
-EMBED_PREFERENCE = [
-    "gemini-embedding-001",
-    "text-embedding-005",
-    "text-embedding-004",
-    "embedding-001",
-]
-CHAT_PREFERENCE = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
-    "gemini-2.5-pro",
-    "gemini-1.5-flash",
-]
+# Specialised or unstable models. A recipe bot wants none of these.
+_EXCLUDE = (
+    "preview", "experimental", "-exp", "image", "tts", "audio", "transcribe",
+    "robotics", "computer-use", "lyria", "nano-banana", "deep-research",
+    "omni", "antigravity", "thinking", "learnlm", "veo", "imagen",
+)
 
 
 def _api_key() -> str:
@@ -49,8 +45,8 @@ def _api_key() -> str:
 
 @lru_cache(maxsize=1)
 def available() -> Tuple[List[str], List[str]]:
-    """Return (embedding models, chat models) this key can use."""
-    request = urllib.request.Request(f"{_ENDPOINT}?key={_api_key()}&pageSize=200")
+    """(embedding models, chat models) this key can actually use."""
+    request = urllib.request.Request(f"{_ENDPOINT}?key={_api_key()}&pageSize=400")
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)
@@ -72,14 +68,31 @@ def available() -> Tuple[List[str], List[str]]:
     return embed, chat
 
 
-def _choose(preference: List[str], found: List[str], hint: str, kind: str) -> str:
-    for wanted in preference:
-        if wanted in found:
-            return wanted
-    fallback = [m for m in found if hint in m] or found
-    if not fallback:
-        raise RuntimeError(f"This API key exposes no {kind} models.")
-    return fallback[0]
+def _version(name: str) -> tuple:
+    """Sort key: version number, then 'not lite', then name length.
+
+    'gemini-3.8-flash' -> (3.8, 1, ...) beats 'gemini-2.5-flash' -> (2.5, 1, ...).
+    A bare '001' suffix is read as version 1, so gemini-embedding-2 wins over
+    gemini-embedding-001. Shorter names win ties, preferring the plain model
+    over a decorated variant.
+    """
+    numbers = re.findall(r"(\d+(?:\.\d+)?)", name)
+    version = max((float(n) for n in numbers), default=0.0)
+    if version > 100:           # a zero-padded id like 001, not a version
+        version = version / 1000
+    return (version, 0 if "lite" in name else 1, -len(name))
+
+
+def _usable(names: List[str]) -> List[str]:
+    return [n for n in names if not any(bad in n for bad in _EXCLUDE)]
+
+
+def _rank(names: List[str], must_contain: str = "") -> List[str]:
+    pool = _usable(names)
+    if must_contain:
+        preferred = [n for n in pool if must_contain in n]
+        pool = preferred or pool
+    return sorted(pool, key=_version, reverse=True)
 
 
 @lru_cache(maxsize=1)
@@ -87,7 +100,10 @@ def embed_model() -> str:
     override = os.environ.get("GEMINI_EMBED_MODEL")
     if override:
         return override
-    return _choose(EMBED_PREFERENCE, available()[0], "embedding", "embedding")
+    ranked = _rank(available()[0], "embedding")
+    if not ranked:
+        raise RuntimeError("This API key exposes no usable embedding models.")
+    return ranked[0]
 
 
 @lru_cache(maxsize=1)
@@ -95,21 +111,33 @@ def chat_model() -> str:
     override = os.environ.get("GEMINI_CHAT_MODEL")
     if override:
         return override
-    return _choose(CHAT_PREFERENCE, available()[1], "flash", "chat")
+    # Flash models: fast and cheap, which is what a chat UI wants.
+    ranked = _rank(available()[1], "flash")
+    if not ranked:
+        raise RuntimeError("This API key exposes no usable chat models.")
+    return ranked[0]
 
 
 def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
-    embed, chat = available()
-    print(f"Embedding models ({len(embed)}):")
-    for name in embed:
+    embed_all, chat_all = available()
+
+    print(f"Embedding models your key can use ({len(_usable(embed_all))} "
+          f"usable of {len(embed_all)}):")
+    for name in _rank(embed_all, "embedding"):
         print(f"   {'->' if name == embed_model() else '  '} {name}")
-    print(f"\nChat models ({len(chat)}):")
-    for name in chat:
+
+    print(f"\nChat models, ranked ({len(_usable(chat_all))} usable of {len(chat_all)}):")
+    for name in _rank(chat_all, "flash")[:10]:
         print(f"   {'->' if name == chat_model() else '  '} {name}")
+
+    skipped = sorted(set(chat_all) - set(_usable(chat_all)))
+    print(f"\nSkipped {len(skipped)} specialised or preview models "
+          f"(image, tts, audio, robotics, research, previews).")
     print(f"\nThis app will use:  embed={embed_model()}  chat={chat_model()}")
+    print("Override in .env with GEMINI_EMBED_MODEL / GEMINI_CHAT_MODEL.")
 
 
 if __name__ == "__main__":
