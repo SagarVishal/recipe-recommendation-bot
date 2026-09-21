@@ -1,23 +1,27 @@
-.PHONY: help install data notebook test clean
+.PHONY: help install data run cli notebook test clean
 
 help:
 	@echo "install   install dependencies"
 	@echo "data      rebuild the curated corpus from the raw dataset"
-	@echo "notebook  launch the workshop notebook"
+	@echo "run       launch the chatbot (Streamlit)"
+	@echo "cli       launch the chatbot in the terminal"
+	@echo "notebook  open the walkthrough notebook"
 	@echo "test      run unit tests"
-	@echo "clean     remove the raw download (the curated CSVs are committed)"
 
 install:
-	pip3 install -r requirements.txt
+	pip install -r requirements.txt
 
 data:
-	python3 -m src.build_corpus
+	python -m src.build_corpus
+
+run:
+	streamlit run app.py
+
+cli:
+	python -m src.chat_cli
 
 notebook:
 	jupyter notebook notebooks/recipe_rag_workshop.ipynb
 
 test:
-	python3 -m pytest tests -q
-
-clean:
-	rm -f data/raw/*.csv
+	python -m pytest tests -q

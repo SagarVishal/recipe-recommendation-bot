@@ -4,7 +4,10 @@
 
 A domain-specific RAG chatbot over **Gujarati** cuisine (with Punjabi as a secondary), lacto-vegetarian and eggless throughout. Built as a teaching notebook: **Python + LangChain + Google Gemini**.
 
-**▶ Start here: [`notebooks/recipe_rag_workshop.ipynb`](notebooks/recipe_rag_workshop.ipynb)**
+**▶ Run the chatbot:** `streamlit run app.py`
+**▶ Or read the walkthrough:** [`notebooks/recipe_rag_workshop.ipynb`](notebooks/recipe_rag_workshop.ipynb)
+
+Two front ends, one engine. The Streamlit app is the working prototype; the notebook explains how it was built, section by section. Neither duplicates the other's logic — both import `src/`.
 
 ---
 
@@ -37,11 +40,17 @@ printf 'GOOGLE_API_KEY=' > .env && read -rs K && echo "$K" >> .env && unset K
 
 That prompts on a blank line and echoes nothing, so the key never appears on screen or in your shell history. `.env` is gitignored. If it's missing, the notebook prompts for the key at runtime instead.
 
+Then launch it:
+
 ```bash
-jupyter notebook notebooks/recipe_rag_workshop.ipynb
+streamlit run app.py            # the chatbot, in your browser
+python -m src.chat_cli          # or the same bot in the terminal
+jupyter notebook notebooks/recipe_rag_workshop.ipynb   # or the walkthrough
 ```
 
-Select the **Recipe Bot** kernel from the Kernel menu — the default kernel runs on a different Python and won't see the installed packages.
+The first launch embeds all 301 recipes (about a minute, with a progress bar) and caches the vectors to `data/processed/`, so every later start is instant.
+
+In Jupyter, select the **Recipe Bot** kernel from the Kernel menu — the default kernel runs on a different Python and won't see the installed packages.
 
 ### Troubleshooting
 
@@ -65,6 +74,18 @@ pip install --upgrade pip && pip install -r requirements.txt
 ```
 
 **`ModuleNotFoundError` inside the notebook** after a clean install: the notebook is running on the wrong kernel. Kernel → Change Kernel → **Recipe Bot**.
+
+## The app
+
+| | |
+|---|---|
+| **Chat** | Multi-turn. Tell it what you have, then "also add jaggery" — the pantry persists |
+| **Pantry sidebar** | Shows what it thinks you have; add or clear by hand |
+| **Retrieval panel** | Every reply expands to show which recipes were retrieved, their coverage %, ranking score and source link |
+| **Honest fallback** | When nothing Gujarati or Punjabi is cookable, it says so and labels the alternatives |
+| **Grounded** | Ask for chicken biryani and it declines — the corpus is vegetarian and it won't pretend otherwise |
+
+The pantry lives in a Python `set`, not in the conversation history — exact, free to maintain, and impossible for the model to lose track of across turns.
 
 ## What the notebook covers
 
