@@ -10,13 +10,53 @@ A domain-specific RAG chatbot over **Gujarati** cuisine (with Punjabi as a secon
 
 ## Quick start
 
+**Requires Python 3.10 or newer.** Check with `python3 --version` before anything else.
+
 ```bash
+cd "POD Exercise"
+python3 -m venv .venv
+source .venv/bin/activate                 # Windows: .venv\\Scripts\\activate
+pip install --upgrade pip
 pip install -r requirements.txt
-cp .env.example .env          # then paste your key into it
+python -m ipykernel install --user --name recipe-bot --display-name "Recipe Bot"
+```
+
+Then add your Gemini API key. Get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+
+```bash
+printf 'GOOGLE_API_KEY=' > .env && read -rs K && echo "$K" >> .env && unset K
+```
+
+That prompts on a blank line and echoes nothing, so the key never appears on screen or in your shell history. `.env` is gitignored. If it's missing, the notebook prompts for the key at runtime instead.
+
+```bash
 jupyter notebook notebooks/recipe_rag_workshop.ipynb
 ```
 
-Get a free Gemini API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). `.env` is gitignored; if it's missing the notebook prompts for the key at runtime instead.
+Select the **Recipe Bot** kernel from the Kernel menu — the default kernel runs on a different Python and won't see the installed packages.
+
+### Troubleshooting
+
+**`No matching distribution found for langchain>=0.3`**, preceded by a wall of "Ignored the following versions that require a different python version".
+
+Your `pip` is attached to a Python older than 3.9, so pip skips every modern langchain and stops at 0.2.x. On macOS this is usually the system Python shadowing a newer one. Diagnose:
+
+```bash
+python3 --version
+pip --version            # note which python path it reports
+which -a python3 pip pip3
+```
+
+If `python3` is 3.10+, the virtual environment above fixes it — inside an activated venv, `pip` and `python` always point at the right interpreter. If `python3` is older, install a current one first:
+
+```bash
+brew install python@3.12
+/opt/homebrew/bin/python3.12 -m venv .venv    # Intel Macs: /usr/local/bin/python3.12
+source .venv/bin/activate
+pip install --upgrade pip && pip install -r requirements.txt
+```
+
+**`ModuleNotFoundError` inside the notebook** after a clean install: the notebook is running on the wrong kernel. Kernel → Change Kernel → **Recipe Bot**.
 
 ## What the notebook covers
 

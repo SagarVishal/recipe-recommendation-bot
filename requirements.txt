@@ -1,3 +1,7 @@
+# Requires Python 3.10 or newer.
+# langchain 0.3+ needs >=3.9; if pip only offers langchain 0.2.x, your pip is
+# running on an older Python. See "Troubleshooting" in the README.
+
 # --- LangChain + Gemini stack ---
 langchain>=0.3
 langchain-core>=0.3
@@ -11,4 +15,5 @@ pyyaml>=6.0
 # --- Notebook ---
 jupyter>=1.0
 notebook>=7.0
+ipykernel>=6.0                   # registers the venv as a Jupyter kernel
 python-dotenv>=1.0               # loads GOOGLE_API_KEY from .env
