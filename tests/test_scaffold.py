@@ -13,11 +13,23 @@ def test_package_imports():
     from src import build_corpus, paths  # noqa: F401
 
 
-def test_project_directories_exist():
+def test_committed_directories_exist():
+    """Only the directories a fresh clone actually has.
+
+    data/raw and data/processed are gitignored, so asserting they exist
+    passes locally and fails in CI - which is exactly what happened.
+    """
     assert paths.ROOT.is_dir()
     assert paths.CONFIG_DIR.is_dir()
-    assert paths.RAW_DIR.is_dir()
-    assert paths.PROCESSED_DIR.is_dir()
+    assert (paths.ROOT / "notebooks").is_dir()
+
+
+def test_ensure_dirs_creates_the_data_directories(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths, "RAW_DIR", tmp_path / "raw")
+    monkeypatch.setattr(paths, "PROCESSED_DIR", tmp_path / "processed")
+    paths.ensure_dirs()
+    assert (tmp_path / "raw").is_dir()
+    assert (tmp_path / "processed").is_dir()
 
 
 def test_paths_sit_inside_the_project():

@@ -106,6 +106,7 @@ class RecipeRAG:
         API quota for no reason, so the vectors are written alongside a
         fingerprint of the corpus and reused until the corpus changes.
         """
+        paths.ensure_dirs()
         fingerprint = self._corpus_fingerprint()
         meta = paths.PROCESSED_DIR / "vectors.meta"
         if paths.VECTORS_NPY.exists() and meta.exists():
@@ -143,7 +144,6 @@ class RecipeRAG:
 
         array = np.asarray(vectors, dtype=np.float32)
         array /= np.linalg.norm(array, axis=1, keepdims=True)  # unit length
-        paths.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         np.save(paths.VECTORS_NPY, array)
         meta.write_text(fingerprint)
         return array

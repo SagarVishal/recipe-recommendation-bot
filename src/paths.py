@@ -23,6 +23,19 @@ FULL_CSV = DATA_DIR / "recipes_all.csv"       # tier 1 + tier 2 fallback
 DISHES_YAML = CONFIG_DIR / "dishes.yaml"
 EXCLUDED_INGREDIENTS_YAML = CONFIG_DIR / "excluded_ingredients.yaml"
 
+
+
+def ensure_dirs() -> None:
+    """Create the data directories if they are missing.
+
+    They are gitignored, so a fresh clone does not have them. Writers call
+    this rather than it happening on import - importing a module should not
+    touch the filesystem.
+    """
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+
 # Upstream mirror of the Archana's Kitchen corpus (24 MB, no auth required).
 SOURCE_URL = (
     "https://raw.githubusercontent.com/nileshely/Indian-Food/main/IndianFoodDataset.csv"

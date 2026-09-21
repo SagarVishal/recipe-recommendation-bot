@@ -178,8 +178,8 @@ def build() -> pd.DataFrame:
 
 
 def main() -> None:
+    paths.ensure_dirs()
     df = build()
-    paths.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     core = df[df.tier == 1]
     core.to_csv(paths.CORE_CSV, index=False)
     df.to_csv(paths.FULL_CSV, index=False)
