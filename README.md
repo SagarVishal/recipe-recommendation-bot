@@ -10,16 +10,24 @@ A domain-specific RAG chatbot over **Gujarati** cuisine (with Punjabi as a secon
 
 ## Quick start
 
-**Requires Python 3.10 or newer.** Check with `python3 --version` before anything else.
+**Requires Python 3.9 or newer.** Check with `python3 --version` first, and note which requirements file that points you at:
+
+| Your Python | Install with |
+|---|---|
+| 3.10 or newer | `requirements.txt` |
+| 3.9 (e.g. macOS `/usr/bin/python3`) | `requirements-py39.txt` — pinned to the last releases that support 3.9 |
+| 3.8 or older | Won't work. Use `/usr/bin/python3` if it's 3.9+, or install 3.12 |
 
 ```bash
 cd "POD Exercise"
 python3 -m venv .venv
 source .venv/bin/activate                 # Windows: .venv\\Scripts\\activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt          # on Python 3.9: requirements-py39.txt
 python -m ipykernel install --user --name recipe-bot --display-name "Recipe Bot"
 ```
+
+Create the venv with the interpreter you actually want: `python3 -m venv .venv` uses whatever `python3` resolves to, which may not be the newest one installed. `/usr/bin/python3 -m venv .venv` pins it to the system Python explicitly.
 
 Then add your Gemini API key. Get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
 
@@ -47,7 +55,7 @@ pip --version            # note which python path it reports
 which -a python3 pip pip3
 ```
 
-If `python3` is 3.10+, the virtual environment above fixes it — inside an activated venv, `pip` and `python` always point at the right interpreter. If `python3` is older, install a current one first:
+If `python3` is 3.10+, the virtual environment above fixes it — inside an activated venv, `pip` and `python` always point at the right interpreter. If it's 3.9, build the venv from that interpreter and use `requirements-py39.txt`. If it's 3.8 or older and nothing newer exists on the machine, install a current Python:
 
 ```bash
 brew install python@3.12

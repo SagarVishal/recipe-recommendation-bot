@@ -1,0 +1,22 @@
+# Pinned fallback for Python 3.9 (e.g. macOS system /usr/bin/python3).
+#
+# Every current release of the stack now requires Python 3.10+. These are the
+# newest versions that still install on 3.9. The notebook's APIs are identical
+# on these versions - only the patch releases differ.
+#
+#   /usr/bin/python3 -m venv .venv && source .venv/bin/activate
+#   pip install --upgrade pip && pip install -r requirements-py39.txt
+#
+# On Python 3.10 or newer, use requirements.txt instead.
+
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-google-genai==2.1.12
+langchain-community==0.3.31
+
+pandas==2.3.3
+pyyaml>=6.0
+
+notebook==7.5.7
+ipykernel==6.31.0
+python-dotenv==1.2.1
