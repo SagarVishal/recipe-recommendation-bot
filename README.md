@@ -1,8 +1,8 @@
-# Indian Vegetarian Recipe Bot
+# Gujarati Recipe Bot
 
 > Tell it what's in your pantry, it tells you what you can actually cook tonight — ranked by how little you're missing, not by how similar the text looks.
 
-A domain-specific chatbot over 4,218 **Indian, lacto-vegetarian, eggless** recipes spanning 37 regional cuisines, with ranking weighted toward **Gujarati** cuisine. Built for the POD exercise.
+A domain-specific chatbot over **Gujarati** cuisine, with **Punjabi** as a secondary cuisine. Lacto-vegetarian and eggless throughout. Built for the POD exercise.
 
 **Status:** in development — see [`docs/PLAN.md`](docs/PLAN.md) for the build plan.
 
@@ -10,9 +10,9 @@ A domain-specific chatbot over 4,218 **Indian, lacto-vegetarian, eggless** recip
 
 ## The problem this solves
 
-Ask most recipe search engines what you can make with *rice, onion, tomato and paneer* and they rank by text similarity. That's the wrong question.
+Ask most recipe search engines what you can make with *besan, curd, ginger and green chilli* and they rank by text similarity. That's the wrong question.
 
-Cosine similarity is symmetric. A 16-ingredient Hyderabadi biryani that happens to contain all four of your items scores beautifully — and you can't cook it, because you're missing twelve things. A three-ingredient tomato rice you *can* cook scores lower.
+Cosine similarity is symmetric. A 16-ingredient undhiyu that happens to contain all four of your items scores beautifully — and you can't cook it, because you're missing twelve things. A four-ingredient Gujarati kadhi you *can* cook scores lower.
 
 The question a hungry person is actually asking is not *"which recipe is most similar to my ingredients?"* but *"which recipe is most **covered** by my ingredients?"* Those are different questions, and only the second is asymmetric.
 
@@ -20,113 +20,124 @@ The question a hungry person is actually asking is not *"which recipe is most si
 coverage = |pantry ∩ recipe| / |recipe|
 ```
 
-Dividing by the recipe's size, not the pantry's, is what punishes the biryani correctly.
+Dividing by the recipe's size, not the pantry's, is what punishes the undhiyu correctly.
 
-The final ranking adds two more terms — a semantic similarity score, and a small regional prior that favours Gujarati and neighbouring western-Indian cuisines:
+The full ranking adds a semantic term, a penalty for missing items, and a regional prior that puts Gujarati first:
 
 ```
 score = w₁·coverage + w₂·similarity − w₃·(missing/k) + w₄·regional_prior
 ```
 
+| Cuisine | Prior |
+|---|---|
+| Gujarati | 1.0 |
+| Punjabi | 0.4 |
+| Tier 2 (see below) | 0 |
+
+The prior is capped so it can never overturn a large coverage gap. A Gujarati dish you can't cook must not outrank a Punjabi one you can. Cookability wins; the prior breaks near-ties.
+
+## Scope and the two tiers
+
+| Tier | Contents | Recipes |
+|---|---|---|
+| **1 — core** | Gujarati (152) + Punjabi (232) | **384** |
+| 2 — fallback | Other Indian vegetarian eggless | 3,848 |
+
+Tier 1 is the bot's world. Tier 2 exists so it never dead-ends.
+
+384 recipes is a small corpus, and with a median of 13 ingredients each, plenty of pantries won't cover anything in it well. A strict Gujarati-and-Punjabi-only bot would answer *"nothing matches"* often enough to be useless. So when no tier-1 recipe clears the coverage threshold, the bot says so and offers the nearest tier-2 match, **explicitly labelled as outside your cuisines**:
+
+> Nothing Gujarati or Punjabi matches what you have. The closest is a **Rajasthani** gatte ki sabzi — you have 5 of 6 ingredients.
+
+Never a silent substitution. The user always knows which tier an answer came from, and tier 2 never appears when tier 1 has something cookable.
+
+## Recovering mislabelled recipes
+
+By the `Cuisine` column alone, this dataset has **191** Gujarati and Punjabi vegetarian recipes. That undercounts badly, because the labelling is inconsistent — *dal dhokli* and *onion thepla* sit under `North Indian Recipes`, *dhania chole masala* under plain `Indian`.
+
+Matching a curated list of canonical dish names against recipe titles recovers them, taking the core from **191 to 384**. Where the extra 193 were hiding:
+
+| Label they were filed under | Recovered |
+|---|---|
+| North Indian Recipes | 129 |
+| Indian | 58 |
+| Rajasthani | 17 |
+| Maharashtrian Recipes | 12 |
+
+The dish list is deliberately conservative. Loosening it to pan-Indian terms like *pakora*, *kadhi* and *stuffed paratha* pushes the count to roughly 466, but those dishes belong to several cuisines at once — Gujarati kadhi, Punjabi kadhi pakora and Sindhi kadhi are all real. Claiming them all as Gujarati or Punjabi would be inflating the number rather than improving the corpus.
+
+### The BOM in the cuisine column
+
+Every Gujarati row is spelled `'Gujarati Recipes﻿'` — with a byte-order mark glued to the end:
+
+```python
+df[df.Cuisine == "Gujarati Recipes"]    # 0 rows
+df[df.Cuisine.str.contains("Gujarati")] # 152 rows
+```
+
+The obvious equality check silently returns nothing, and nothing errors. Cuisine values are normalised — BOM and zero-width characters stripped, whitespace collapsed — before any comparison, with a unit test pinning the count so it can't regress.
+
+## Dietary scope
+
+**Lacto-vegetarian.** Dairy is in, egg is out. 201 of the 384 core recipes use dairy, which is unsurprising for two cuisines built on curd, ghee and paneer. `vegan` remains available as an opt-in query filter.
+
+### Why the `Diet` column isn't trusted
+
+- **The non-veg label is misspelled.** 427 rows read `Non Vegeterian`. A filter written as `Diet != "Non Vegetarian"` lets every one through.
+- **55 recipes labelled `Vegetarian` contain meat or fish** — *Singapore Style Chicken Layered Fried Rice*, *Andaman Style Steamed Garlic Prawns*, *Baked Fish In Coconut Milk*.
+- **423 recipes labelled `Vegetarian` contain egg**, so the separate `Eggetarian` label is applied inconsistently.
+
+The label is a weak first pass; an ingredient blocklist in [`config/excluded_ingredients.yaml`](config/excluded_ingredients.yaml) is the real gate.
+
+### The eggplant problem
+
+Excluding egg looks like a substring check. Measured: `"egg" in text` drops **143 recipes, 119 of which contain no egg at all** — they're aubergine dishes, because brinjal's listed synonyms include "Eggplant". Word-boundary matching on parsed entities drops 29 instead, and correctly keeps the recipes whose names contain *egg**less***.
+
+Same lesson as the meat blocklist, from the other direction: **match parsed entities, never raw strings.**
+
 ## How it works
 
 ```
 Archana's Kitchen dataset (6,871 recipes)
-        ↓  cuisine filter → Indian regional only
-        ↓  diet filter + ingredient blocklist
-        ↓  egg exclusion
-   4,218 Indian vegetarian eggless recipes
+        ↓  diet filter + ingredient blocklist + egg exclusion
+        ↓  cuisine normalisation + dish-name recovery
+   tier 1: 384 Gujarati & Punjabi    tier 2: 3,848 other Indian
         ↓  parse ingredients → normalised entities
         ↓  embed (MiniLM-L6-v2, 384-dim)
-   vector store + parquet
         ↓
-   user message → parse pantry → semantic recall (top 50)
-                → coverage re-rank → formatted answer
+   user message → parse pantry → tier-1 recall → coverage re-rank
+                → threshold met?  yes → answer
+                                  no  → tier-2 fallback, labelled
 ```
 
-Two stages, deliberately. Semantic search gets **recall** — it survives "aubergine" vs "brinjal" and handles vague asks like *"something light for dinner"*. Coverage re-ranking gets **precision** — it orders those candidates by what you can genuinely cook.
-
-At 4,218 recipes a brute-force cosine over a 4,218 × 384 array runs in about 3 ms, so there's no vector database here and no need for one. The two stages earn their place on **capability**, not speed: coverage scoring needs exact set membership and can't parse *"something light"*; semantic search has no notion of what's missing from your kitchen. Each does what the other can't.
+At this corpus size a brute-force cosine runs in about 3 ms, so there's no vector database and no need for one. The two stages earn their place on **capability**, not speed: coverage scoring needs exact set membership and can't parse *"something light for dinner"*; semantic search has no notion of what's missing from your kitchen.
 
 No LLM API anywhere in the loop. Everything runs locally on CPU.
 
-## Dietary scope
+## Source
 
-**Lacto-vegetarian.** Dairy is in, egg is out. That's a deliberate position, not an oversight — 1,698 of the 4,218 recipes use dairy (ghee in 880, milk in 446, curd in 444, paneer in 174), and excluding it would gut the corpus and misrepresent the cuisine. `vegan` remains available as an opt-in query filter for anyone who wants it.
-
-## Regional weighting
-
-Gujarati cuisine is favoured in ranking through the `regional_prior` term — full weight for Gujarati, half weight for its western-Indian neighbours (Rajasthani, Maharashtrian, Sindhi, Parsi).
-
-A weight, not a filter. There are only 114 Gujarati recipes in the corpus; restricting to them would leave most pantry queries with nothing cookable. The prior is also capped so it can never overturn a large coverage gap — a Gujarati dish you can't cook must not outrank a Rajasthani one you can. Cookability wins; the prior breaks near-ties.
-
-This is measured, not assumed. The evaluation reports Gujarati share in the top 5 **and** mean coverage side by side, so the trade-off is visible rather than hidden in a weight.
-
-### The BOM in the cuisine column
-
-Every Gujarati row in this dataset is spelled `'Gujarati Recipes\ufeff'` — with a byte-order mark glued to the end. So:
-
-```python
-df[df.Cuisine == "Gujarati Recipes"]   # 0 rows
-df[df.Cuisine.str.contains("Gujarati")] # 114 rows
-```
-
-The obvious equality check silently returns nothing, and nothing errors. Cuisine values are normalised (BOM and zero-width characters stripped, whitespace collapsed) before any comparison, and there's a unit test asserting the Gujarati count is 114 so this can't regress unnoticed.
-
-## The dataset
-
-[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), scraped from [Archana's Kitchen](https://www.archanaskitchen.com/).
-
-| Filter stage | Recipes |
-|---|---|
-| Total in dataset | 6,871 |
-| Vegetarian diet labels only | 6,219 |
-| Indian regional cuisines only | 4,247 |
-| Egg excluded | **4,218** |
-
-Of these, 114 are Gujarati and 456 fall in the wider western-Indian cluster.
-
-37 regional cuisines — North Indian, South Indian, Maharashtrian, Karnataka, Tamil Nadu, Bengali, Kerala, Rajasthani, Gujarati, Andhra, Punjabi, then a long tail through Chettinad, Kashmiri, Awadhi, Goan, Parsi, Sindhi and Oriya. Median 12 ingredients per recipe.
-
-### Why the `Diet` column isn't trusted
-
-The dataset ships a `Diet` label, and filtering on it looks like one line of code. It doesn't hold up:
-
-- **The non-veg label is misspelled.** 427 rows read `Non Vegeterian`. A filter written as `Diet != "Non Vegetarian"` lets every one of them through.
-- **55 recipes labelled `Vegetarian` contain meat or fish** — including *Singapore Style Chicken Layered Fried Rice*, *Andaman Style Steamed Garlic Prawns* and *Baked Fish In Coconut Milk*.
-- **423 recipes labelled `Vegetarian` contain egg**, so the separate `Eggetarian` label is applied inconsistently.
-- `Diet` also mixes diet type with health tags (`Diabetic Friendly`, `Gluten Free`), so the vocabulary isn't a clean partition to begin with.
-
-So the label is a weak first pass, and an ingredient-level blocklist is the real gate. It lives in [`config/excluded_ingredients.yaml`](config/excluded_ingredients.yaml) — readable and arguable, not buried in code — and covers the non-obvious cases: chicken stock, gelatin, anchovy, Worcestershire sauce, lard, rennet.
-
-### The eggplant problem
-
-Excluding egg recipes looks like a one-line substring check. Measured against this corpus, `"egg" in text` drops **143 recipes — and 119 of them contain no egg at all.** They're aubergine dishes: *Baingan Bharta*, *Dhungare Baingan*, *Safed Achari Baingan*. The dataset helpfully lists brinjal's synonyms in brackets, and one of them is "Eggplant".
-
-Word-boundary matching on parsed ingredient entities drops 29 recipes instead of 143, and correctly **keeps** the two recipes that are explicitly *eggless* — a naive filter would have thrown away the eggless chocolate cake for having "egg" in its name.
-
-The same principle applies to the meat blocklist: *Paneer Matar Keema* and *Soya Keema Masala* are vegetarian dishes whose names contain a meat word. Match entities, never raw strings.
-
-The error budget is deliberately asymmetric. Wrongly dropping a valid recipe costs one row out of 4,218. Wrongly keeping a meat or egg recipe breaks the entire premise of the bot.
+[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), crawled from [Archana's Kitchen](https://www.archanaskitchen.com/); [CSV mirror](https://github.com/nileshely/Indian-Food).
 
 ## Quick start
 
 ```bash
 pip install -r requirements.txt
-make data      # download, filter, clean, embed
+make data      # download, filter, classify, embed
 make run       # launch the chat interface
 ```
 
 ## Project structure
 
 ```
-src/ingest.py      download → filter → clean → parquet
+src/ingest.py      download → filter → parquet
+src/cuisine.py     normalisation, dish-name recovery, tiering
 src/normalise.py   ingredient parsing, synonyms, vocabulary
 src/embed.py       build the vector index
 src/query.py       parse a message into pantry + filters
-src/retrieve.py    semantic search, then coverage re-rank
+src/retrieve.py    tier-1 search, coverage re-rank, tier-2 fallback
 src/respond.py     format results into replies
-eval/              40 test queries, baseline vs re-ranked
+eval/              test queries, baseline vs re-ranked
+config/            dish lists and the excluded-ingredient blocklist
 ```
 
 `src/` never imports the UI framework. The retrieval engine is a library; the interface is a thin caller.
