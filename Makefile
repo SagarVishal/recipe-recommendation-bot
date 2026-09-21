@@ -21,7 +21,7 @@ cli:
 	python -m src.chat_cli
 
 notebook:
-	jupyter notebook notebooks/recipe_rag_workshop.ipynb
+	jupyter notebook notebooks/rag_walkthrough.ipynb
 
 test:
 	python -m pytest tests -q

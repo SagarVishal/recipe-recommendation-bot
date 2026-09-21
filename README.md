@@ -1,116 +1,100 @@
-# 🍲 Gujarati Recipe Bot — a practical RAG workshop
+# 🍲 Gujarati Recipe Bot
 
-> Tell it what's in your pantry, it tells you what you can actually cook tonight — grounded in a real recipe corpus, so it can't invent dishes that don't exist.
+**An AI-powered RAG chatbot.** Tell it what's in your kitchen and it tells you what you can actually cook tonight — grounded in a real recipe corpus, so it can't invent dishes that don't exist.
 
-A domain-specific RAG chatbot over **Gujarati** cuisine (with Punjabi as a secondary), lacto-vegetarian and eggless throughout. Built as a teaching notebook: **Python + LangChain + Google Gemini**.
-
-**▶ Run the chatbot:** `streamlit run app.py`
-**▶ Or read the walkthrough:** [`notebooks/recipe_rag_workshop.ipynb`](notebooks/recipe_rag_workshop.ipynb)
-
-Two front ends, one engine. The Streamlit app is the working prototype; the notebook explains how it was built, section by section. Neither duplicates the other's logic — both import `src/`.
+301 Gujarati and Punjabi recipes, lacto-vegetarian and eggless. Built with **Python + LangChain + Google Gemini**.
 
 ---
 
-## Quick start
+## How to run it
 
-**Requires Python 3.9 or newer.** Check with `python3 --version` first, and note which requirements file that points you at:
+### 1. Check your Python
 
-| Your Python | Install with |
+```bash
+python3 --version
+```
+
+| Your version | Requirements file to use |
 |---|---|
 | 3.10 or newer | `requirements.txt` |
-| 3.9 (e.g. macOS `/usr/bin/python3`) | `requirements-py39.txt` — pinned to the last releases that support 3.9 |
-| 3.8 or older | Won't work. Use `/usr/bin/python3` if it's 3.9+, or install 3.12 |
+| 3.9 (e.g. macOS `/usr/bin/python3`) | `requirements-py39.txt` |
+| 3.8 or older | Won't work — use `/usr/bin/python3` if that's 3.9+, or install 3.12 from [python.org](https://www.python.org/downloads/) |
+
+### 2. Create a virtual environment and install
 
 ```bash
 cd "POD Exercise"
-python3 -m venv .venv
-source .venv/bin/activate                 # Windows: .venv\\Scripts\\activate
+
+python3 -m venv .venv                 # or: /usr/bin/python3 -m venv .venv
+source .venv/bin/activate             # Windows: .venv\Scripts\activate
 pip install --upgrade pip
-pip install -r requirements.txt          # on Python 3.9: requirements-py39.txt
-python -m ipykernel install --user --name recipe-bot --display-name "Recipe Bot"
+pip install -r requirements.txt       # on Python 3.9: requirements-py39.txt
 ```
 
-Create the venv with the interpreter you actually want: `python3 -m venv .venv` uses whatever `python3` resolves to, which may not be the newest one installed. `/usr/bin/python3 -m venv .venv` pins it to the system Python explicitly.
+Build the venv from the interpreter you actually want — bare `python3` resolves to whatever is first on your PATH, which may not be the newest Python installed.
 
-Then add your Gemini API key. Get one free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey):
+### 3. Add your Gemini API key
+
+Get one free at **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** → *Create API key*.
 
 ```bash
 printf 'GOOGLE_API_KEY=' > .env && read -rs K && echo "$K" >> .env && unset K
 ```
 
-That prompts on a blank line and echoes nothing, so the key never appears on screen or in your shell history. `.env` is gitignored. If it's missing, the notebook prompts for the key at runtime instead.
+This prompts on a blank line and echoes nothing, so the key never appears on screen or in your shell history. `.env` is gitignored. If you skip this step the app asks for the key in the browser instead, and keeps it in memory only.
 
-Then launch it:
-
-```bash
-streamlit run app.py            # the chatbot, in your browser
-python -m src.chat_cli          # or the same bot in the terminal
-jupyter notebook notebooks/recipe_rag_workshop.ipynb   # or the walkthrough
-```
-
-The first launch embeds all 301 recipes (about a minute, with a progress bar) and caches the vectors to `data/processed/`, so every later start is instant.
-
-In Jupyter, select the **Recipe Bot** kernel from the Kernel menu — the default kernel runs on a different Python and won't see the installed packages.
-
-### Troubleshooting
-
-**`No matching distribution found for langchain>=0.3`**, preceded by a wall of "Ignored the following versions that require a different python version".
-
-Your `pip` is attached to a Python older than 3.9, so pip skips every modern langchain and stops at 0.2.x. On macOS this is usually the system Python shadowing a newer one. Diagnose:
+### 4. Run
 
 ```bash
-python3 --version
-pip --version            # note which python path it reports
-which -a python3 pip pip3
+streamlit run app.py
 ```
 
-If `python3` is 3.10+, the virtual environment above fixes it — inside an activated venv, `pip` and `python` always point at the right interpreter. If it's 3.9, build the venv from that interpreter and use `requirements-py39.txt`. If it's 3.8 or older and nothing newer exists on the machine, install a current Python:
+Opens at `http://localhost:8501`. The first launch embeds all 301 recipes — about a minute, with a progress bar — and caches the vectors to `data/processed/`, so every later start is instant.
+
+**Other ways to run the same engine:**
 
 ```bash
-brew install python@3.12
-/opt/homebrew/bin/python3.12 -m venv .venv    # Intel Macs: /usr/local/bin/python3.12
-source .venv/bin/activate
-pip install --upgrade pip && pip install -r requirements.txt
+python -m src.chat_cli     # the bot in your terminal, no browser
+make run                   # same as streamlit run app.py
+make test                  # the test suite
+make data                  # rebuild the corpus from the raw dataset
 ```
 
-**`ModuleNotFoundError` inside the notebook** after a clean install: the notebook is running on the wrong kernel. Kernel → Change Kernel → **Recipe Bot**.
+### 5. Try it
 
-## The app
+| Type this | What it shows |
+|---|---|
+| `I have besan, curd, ginger and green chilli` | Coverage-ranked Gujarati dishes |
+| `also add rice and jaggery` | Pantry persists across turns |
+| `something Gujarati for dinner` | No ingredients in the question — semantic retrieval handles it |
+| `do you have chicken biryani?` | It declines. The corpus is vegetarian and it won't pretend |
+| `I have broccoli, olives and feta` | Nothing matches — it says so and labels the alternatives |
+
+---
+
+## What it does
 
 | | |
 |---|---|
-| **Chat** | Multi-turn. Tell it what you have, then "also add jaggery" — the pantry persists |
+| **Chat** | Multi-turn. The pantry persists, and "also add jaggery" extends it |
 | **Pantry sidebar** | Shows what it thinks you have; add or clear by hand |
 | **Retrieval panel** | Every reply expands to show which recipes were retrieved, their coverage %, ranking score and source link |
 | **Honest fallback** | When nothing Gujarati or Punjabi is cookable, it says so and labels the alternatives |
-| **Grounded** | Ask for chicken biryani and it declines — the corpus is vegetarian and it won't pretend otherwise |
+| **Grounded** | Every number in a reply is computed in Python, not predicted by the model |
 
-The pantry lives in a Python `set`, not in the conversation history — exact, free to maintain, and impossible for the model to lose track of across turns.
-
-## What the notebook covers
-
-| # | Section | Concept |
-|---|---|---|
-| 1 | AI Frameworks | Why LangChain rather than raw HTTP |
-| 2 | Configure the LLM | Gemini through a swappable wrapper |
-| 3 | LLM Parameters | Temperature, token limits, what to tune first |
-| 4 | Basic Chatbot | System prompts, and why an ungrounded bot guesses |
-| 5 | History & Memory | Memory is a list you resend — there is no server-side state |
-| 6 | Introduce RAG | Embeddings, with measured similarity between *brinjal* and *aubergine* |
-| 7 | Small RAG System | Load → embed → retrieve → generate, plus grounding tests |
-| 8 | Final System | Coverage re-ranking, regional weighting, graceful fallback |
+The pantry lives in a Python `set`, not in conversation history — exact, free to maintain, and impossible for the model to lose track of.
 
 ## The RAG approach
 
-This is a **Retrieval-Augmented Generation** system: Gemini never answers from what it absorbed in training. It answers from recipes we retrieve and place in the prompt, which makes the corpus the authority on facts and the model merely the authority on phrasing.
+Gemini never answers from training data. It answers from recipes we retrieve and place in the prompt, which makes the corpus the authority on facts and the model the authority only on phrasing.
 
 ```
                  ┌──────────────── INDEXING (once) ─────────────────┐
-  6,871 rows ──▶ filter & clean ──▶ 301 docs ──▶ Gemini embeddings ──▶ vector store
+  6,871 rows ──▶ filter & clean ──▶ 301 docs ──▶ Gemini embeddings ──▶ cached vectors
                  └──────────────────────────────────────────────────┘
 
                  ┌──────────────── QUERY (per message) ─────────────┐
-  "I have besan     parse pantry ──▶ semantic retrieval (top-k)
+  "I have besan     parse pantry ──▶ semantic retrieval
    and curd"              │                     │
                           └──▶ coverage re-rank ┘
                                      │
@@ -121,29 +105,19 @@ This is a **Retrieval-Augmented Generation** system: Gemini never answers from w
                                   grounded answer
 ```
 
-### The three stages
-
 | Stage | Component | What it does |
 |---|---|---|
-| **Retrieve** | `InMemoryVectorStore` + `text-embedding-004` | Embeds the question, returns the nearest recipe documents by cosine similarity |
-| **Augment** | `ChatPromptTemplate` | Injects those recipes into the system prompt as `{context}`, with computed coverage figures alongside each |
-| **Generate** | `ChatGoogleGenerativeAI`, `temperature=0.0` | Phrases a reply constrained to the supplied context |
+| **Retrieve** | `text-embedding-004` + cached numpy vectors | Embeds the question, finds the nearest recipes by cosine similarity |
+| **Augment** | Prompt assembly in `src/rag.py` | Injects those recipes plus their computed coverage figures into the system prompt |
+| **Generate** | `ChatGoogleGenerativeAI`, `temperature=0.2` | Phrases a reply constrained to the supplied candidates |
 
-**Chunking:** one document per recipe. The data provides a natural boundary, so there's no fixed-size splitting and no chunk ever straddles two dishes. Each document holds name, cuisine, course and ingredients; instructions and URL ride along as metadata.
+**Chunking:** one document per recipe. The data provides a natural boundary, so no chunk ever straddles two dishes.
 
-**Vector store:** in-memory, brute-force cosine over 301 × 768 floats — a few milliseconds. FAISS or Chroma would earn their place somewhere past ~100k documents or when the index must outlive the process. Using one here and calling it architecture is the kind of thing reviewers notice.
+**Vector store:** brute-force cosine over 301 × 768 floats — a few milliseconds. FAISS or Chroma would earn their place past ~100k documents. Vectors are cached against a fingerprint of the corpus, so they're rebuilt only when the corpus changes.
 
-**Retrieval is only half the system.** Plain top-k similarity returns recipes that *sound* like the query; the coverage re-ranker orders them by what's actually cookable. See below for why that distinction is the heart of this project.
+**Keeping it grounded:** the system prompt forbids inventing recipes or ingredients; temperature stays low because the bot reports facts; and all coverage percentages and missing-ingredient lists are computed in Python and handed to the model as text. Gemini is never asked to count.
 
-### Keeping it grounded
-
-Three controls, and the notebook demonstrates each failing safely:
-
-1. **Instruction** — the system prompt says answer only from the supplied recipes, and say so plainly when they don't cover the question.
-2. **`temperature=0.0`** — the bot reports facts from a corpus. Creativity here is indistinguishable from fabrication.
-3. **Numbers computed, not generated** — coverage percentages and missing-ingredient lists are calculated in Python and handed to the model as text. Gemini is never asked to count.
-
-Asked *"how do I make chicken biryani?"* the bot declines: there are no chicken recipes in the corpus. Asked *"what is the capital of France?"* it declines too, though Gemini certainly knows. **A RAG system that answers everything confidently hasn't been tested** — showing it refuse is what proves the grounding is real.
+Ask it *"how do I make chicken biryani?"* and it declines. **A RAG system that answers everything confidently hasn't been tested** — showing it refuse is what proves the grounding is real.
 
 ## The idea worth stealing
 
@@ -165,9 +139,11 @@ score = 0.55·coverage + 0.25·similarity − 0.05·(missing/k) + 0.15·regional
 
 Semantic retrieval provides **recall** (survives "aubergine" vs "brinjal", handles *"something light for dinner"*). Coverage re-ranking provides **precision**. Neither stage can do the other's job — that's why there are two.
 
+The regional prior is 1.0 for Gujarati, 0.4 for Punjabi, and capped so it can never overturn a coverage gap. Cookability wins; the prior breaks near-ties.
+
 ## The corpus
 
-[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), from [Archana's Kitchen](https://www.archanaskitchen.com/) ([CSV mirror](https://github.com/nileshely/Indian-Food)). Rebuild with `python3 -m src.build_corpus`.
+[6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), from [Archana's Kitchen](https://www.archanaskitchen.com/) ([CSV mirror](https://github.com/nileshely/Indian-Food)). Rebuild with `make data`.
 
 | Stage | Recipes |
 |---|---|
@@ -175,20 +151,18 @@ Semantic retrieval provides **recall** (survives "aubergine" vs "brinjal", handl
 | Vegetarian diet labels | 5,875 |
 | After ingredient blocklist | 5,620 |
 | Untranslated rows dropped | −719 |
-| **Tier 1 — Gujarati 132 + Punjabi 169** | **301** |
-| Tier 2 — other Indian, labelled fallback | 3,164 |
-
-Tier 1 is the bot's world. Tier 2 exists so it never dead-ends: when nothing in Gujarati or Punjabi clears the coverage threshold, the bot says so and offers the nearest alternative, **explicitly labelled**. Never a silent substitution.
+| **Core — Gujarati 132 + Punjabi 169** | **301** |
+| Fallback tier — other Indian, labelled | 3,164 |
 
 ## Four things the data got wrong
 
-Every one of these would have passed code review. None threw an error.
+Every one would have passed code review. None threw an error.
 
 **1. The diet label is misspelled.** 427 rows read `Non Vegeterian`. A filter written as `Diet != "Non Vegetarian"` lets every one through.
 
 **2. The diet label is wrong anyway.** 55 recipes labelled `Vegetarian` contain meat or fish — *Singapore Style Chicken Layered Fried Rice*, *Andaman Style Steamed Garlic Prawns*, *Baked Fish In Coconut Milk*. 423 more contain egg despite a separate `Eggetarian` label existing. So the label is a weak first pass and [`config/excluded_ingredients.yaml`](config/excluded_ingredients.yaml) is the real gate.
 
-**3. A byte-order mark hides every Gujarati recipe.** Each one is spelled `'Gujarati Recipes﻿'`:
+**3. A byte-order mark hides every Gujarati recipe.**
 
 ```python
 df[df.Cuisine == "Gujarati Recipes"]     # 0 rows
@@ -203,19 +177,36 @@ Written the obvious way, the Gujarati weighting would have done nothing, silentl
 
 `"egg" in text` drops 143 recipes and **119 contain no egg** — they're aubergine dishes, because the dataset lists brinjal's synonyms and one of them is "Eggplant". Word-boundary matching on parsed entities drops 29 instead, and correctly keeps the recipes whose names contain *egg**less***.
 
-Same lesson as the meat blocklist, arriving from the other direction: **match parsed entities, never raw strings.** And the error budget is asymmetric on purpose — wrongly dropping a valid recipe costs one row out of 301; wrongly keeping a meat or egg recipe breaks the premise of the bot.
+Same lesson as the meat blocklist from the other direction: **match parsed entities, never raw strings.** The error budget is asymmetric on purpose — wrongly dropping a valid recipe costs one row out of 301; wrongly keeping a meat or egg recipe breaks the premise.
 
-## Repository layout
+## Project structure
 
 ```
-notebooks/recipe_rag_workshop.ipynb   the deliverable — 45 cells, 8 sections
-src/build_corpus.py                   6,871 raw rows → 301 curated
-src/paths.py                          every filesystem path, in one place
-config/excluded_ingredients.yaml      the blocklist, readable and arguable
-data/recipes_core.csv                 tier 1, committed so the notebook just runs
-data/recipes_all.csv                  tier 1 + tier 2 fallback
-tests/                                corpus invariants
+app.py                  Streamlit chat UI — the only file importing Streamlit
+src/rag.py              retrieval, coverage ranking, grounded generation
+src/corpus.py           ingredient parsing, coverage scoring, vocabulary
+src/build_corpus.py     6,871 raw rows → 301 curated
+src/chat_cli.py         the same engine in the terminal
+src/paths.py            every filesystem path, in one place
+config/                 the excluded-ingredient blocklist
+data/recipes_core.csv   the 301, committed so the app runs immediately
+notebooks/              a step-by-step walkthrough of how it was built
+tests/                  corpus invariants and scaffolding checks
 ```
+
+`src/` never imports a UI framework. The engine is a library; the app, the CLI and the notebook are all thin callers.
+
+## Troubleshooting
+
+**`No matching distribution found for langchain>=0.3`**, after a wall of "Ignored the following versions that require a different python version" — your `pip` is attached to a Python older than 3.9, so it skips every modern langchain. Check with `python3 --version` and `which -a python3 pip pip3`, then build the venv from a 3.9+ interpreter.
+
+**`ModuleNotFoundError` in the app** after a clean install — the venv isn't activated. `source .venv/bin/activate` first.
+
+**`ModuleNotFoundError` in the notebook** — wrong kernel. Register one with `python -m ipykernel install --user --name recipe-bot --display-name "Recipe Bot"`, then Kernel → Change Kernel → Recipe Bot.
+
+**The app asks for an API key every launch** — `.env` isn't being found. It must sit in the same directory you run `streamlit` from.
+
+**Re-embedding on every start** — the vector cache lives in `data/processed/`. If that directory isn't writable the app silently re-embeds each time.
 
 ## Licence and attribution
 

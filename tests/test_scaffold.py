@@ -31,7 +31,7 @@ def test_notebook_is_valid_and_has_all_eight_sections():
     import ast
     import json
 
-    notebook = json.loads((paths.ROOT / "notebooks" / "recipe_rag_workshop.ipynb").read_text())
+    notebook = json.loads((paths.ROOT / "notebooks" / "rag_walkthrough.ipynb").read_text())
     markdown = "\n".join(
         "".join(c["source"]) for c in notebook["cells"] if c["cell_type"] == "markdown"
     )
