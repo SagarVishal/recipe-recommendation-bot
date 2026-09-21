@@ -1,3 +1,3 @@
 # POD Exercise
 
-Domain-specific chatbot that recommends recipes from the ingredients you already have, using embedding-based retrieval over the RecipeNLG dataset with ingredient-coverage scoring.
+Recipe recommendation chatbot — tell it what's in your fridge, it retrieves what you can actually cook. RAG over RecipeNLG.
