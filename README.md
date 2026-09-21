@@ -2,7 +2,7 @@
 
 > Tell it what's in your pantry, it tells you what you can actually cook tonight — ranked by how little you're missing, not by how similar the text looks.
 
-A domain-specific chatbot over 4,218 **Indian, vegetarian, eggless** recipes spanning 37 regional cuisines. Built for the POD exercise.
+A domain-specific chatbot over 4,218 **Indian, lacto-vegetarian, eggless** recipes spanning 37 regional cuisines, with ranking weighted toward **Gujarati** cuisine. Built for the POD exercise.
 
 **Status:** in development — see [`docs/PLAN.md`](docs/PLAN.md) for the build plan.
 
@@ -21,6 +21,12 @@ coverage = |pantry ∩ recipe| / |recipe|
 ```
 
 Dividing by the recipe's size, not the pantry's, is what punishes the biryani correctly.
+
+The final ranking adds two more terms — a semantic similarity score, and a small regional prior that favours Gujarati and neighbouring western-Indian cuisines:
+
+```
+score = w₁·coverage + w₂·similarity − w₃·(missing/k) + w₄·regional_prior
+```
 
 ## How it works
 
@@ -44,6 +50,29 @@ At 4,218 recipes a brute-force cosine over a 4,218 × 384 array runs in about 3 
 
 No LLM API anywhere in the loop. Everything runs locally on CPU.
 
+## Dietary scope
+
+**Lacto-vegetarian.** Dairy is in, egg is out. That's a deliberate position, not an oversight — 1,698 of the 4,218 recipes use dairy (ghee in 880, milk in 446, curd in 444, paneer in 174), and excluding it would gut the corpus and misrepresent the cuisine. `vegan` remains available as an opt-in query filter for anyone who wants it.
+
+## Regional weighting
+
+Gujarati cuisine is favoured in ranking through the `regional_prior` term — full weight for Gujarati, half weight for its western-Indian neighbours (Rajasthani, Maharashtrian, Sindhi, Parsi).
+
+A weight, not a filter. There are only 114 Gujarati recipes in the corpus; restricting to them would leave most pantry queries with nothing cookable. The prior is also capped so it can never overturn a large coverage gap — a Gujarati dish you can't cook must not outrank a Rajasthani one you can. Cookability wins; the prior breaks near-ties.
+
+This is measured, not assumed. The evaluation reports Gujarati share in the top 5 **and** mean coverage side by side, so the trade-off is visible rather than hidden in a weight.
+
+### The BOM in the cuisine column
+
+Every Gujarati row in this dataset is spelled `'Gujarati Recipes\ufeff'` — with a byte-order mark glued to the end. So:
+
+```python
+df[df.Cuisine == "Gujarati Recipes"]   # 0 rows
+df[df.Cuisine.str.contains("Gujarati")] # 114 rows
+```
+
+The obvious equality check silently returns nothing, and nothing errors. Cuisine values are normalised (BOM and zero-width characters stripped, whitespace collapsed) before any comparison, and there's a unit test asserting the Gujarati count is 114 so this can't regress unnoticed.
+
 ## The dataset
 
 [6000+ Indian Food Recipes](https://www.kaggle.com/datasets/kanishk307/6000-indian-food-recipes-dataset), scraped from [Archana's Kitchen](https://www.archanaskitchen.com/).
@@ -54,6 +83,8 @@ No LLM API anywhere in the loop. Everything runs locally on CPU.
 | Vegetarian diet labels only | 6,219 |
 | Indian regional cuisines only | 4,247 |
 | Egg excluded | **4,218** |
+
+Of these, 114 are Gujarati and 456 fall in the wider western-Indian cluster.
 
 37 regional cuisines — North Indian, South Indian, Maharashtrian, Karnataka, Tamil Nadu, Bengali, Kerala, Rajasthani, Gujarati, Andhra, Punjabi, then a long tail through Chettinad, Kashmiri, Awadhi, Goan, Parsi, Sindhi and Oriya. Median 12 ingredients per recipe.
 
