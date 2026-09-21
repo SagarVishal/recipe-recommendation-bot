@@ -21,9 +21,7 @@ import pandas as pd
 
 from src import paths
 from src.corpus import coverage, load_recipes, vocabulary
-
-EMBED_MODEL = "models/text-embedding-004"
-CHAT_MODEL = "gemini-2.0-flash"
+from src.models import chat_model, embed_model
 
 # Ranking weights. Coverage dominates; the regional prior only breaks ties.
 W_COVERAGE, W_SIMILARITY, W_MISSING, W_REGION = 0.55, 0.25, 0.05, 0.15
@@ -80,11 +78,16 @@ class RecipeRAG:
     def embeddings(self):
         if self._embeddings is None:
             from langchain_google_genai import GoogleGenerativeAIEmbeddings
-            self._embeddings = GoogleGenerativeAIEmbeddings(model=EMBED_MODEL)
+            # Resolved from the API rather than hardcoded - Google retires
+            # model names, and a stale one 404s months later.
+            self._embeddings = GoogleGenerativeAIEmbeddings(
+                model=f"models/{embed_model()}")
         return self._embeddings
 
     def _corpus_fingerprint(self) -> str:
-        joined = "|".join(self.core["name"].tolist())
+        """Includes the model name: different models produce incompatible
+        vectors, so switching models must invalidate the cache."""
+        joined = embed_model() + "|" + "|".join(self.core["name"].tolist())
         return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
     def build_index(self, progress=None) -> np.ndarray:
@@ -221,7 +224,7 @@ class RecipeRAG:
             f"CANDIDATES:\n{self._format(candidates)}"
         )))
 
-        llm = ChatGoogleGenerativeAI(model=CHAT_MODEL, temperature=0.2)
+        llm = ChatGoogleGenerativeAI(model=chat_model(), temperature=0.2)
         return llm.invoke(messages).content, candidates, widened
 
 

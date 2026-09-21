@@ -42,6 +42,8 @@ def get_engine():
     """Built once per process. Embedding 301 recipes is cached to disk too."""
     from src.rag import RecipeRAG
     engine = RecipeRAG()
+    from src.models import chat_model, embed_model
+    st.session_state["models"] = (embed_model(), chat_model())
     bar = st.progress(0.0, text="Embedding the recipe corpus (first run only)…")
     engine._core_vectors = engine.build_index(
         progress=lambda done, total: bar.progress(done / total,
@@ -51,7 +53,16 @@ def get_engine():
     return engine
 
 
-engine = get_engine()
+try:
+    engine = get_engine()
+except Exception as error:  # noqa: BLE001 - a clear message beats a traceback
+    st.title("🍲 Gujarati Recipe Bot")
+    st.error(f"Couldn't start the engine.\n\n```\n{error}\n```")
+    st.markdown(
+        "Run `python -m src.models` to see which models your API key supports. "
+        "If the list is empty the key is invalid or revoked."
+    )
+    st.stop()
 
 st.session_state.setdefault("pantry", set())
 st.session_state.setdefault("messages", [])
@@ -83,6 +94,13 @@ with st.sidebar:
         f"Fallback tier: {len(engine.fallback)} other Indian"
     )
     st.caption("Lacto-vegetarian · eggless · Gujarati-weighted ranking")
+
+    models = st.session_state.get("models")
+    if models:
+        st.divider()
+        st.subheader("Models")
+        st.caption(f"embed `{models[0]}`  \nchat `{models[1]}`")
+        st.caption("Resolved from your API key at startup.")
 
     st.divider()
     if st.button("Reset conversation", use_container_width=True):
