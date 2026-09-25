@@ -11,7 +11,7 @@ written as a teaching notebook in eight sections.
       -> ingredient blocklist              5,620
       -> untranslated rows dropped          -719
       -> cuisine normalised, dishes recovered
-      -> tier 1: 301 (Gujarati 132, Punjabi 169)
+      -> curated: 910 (all-India, Gujarati and Punjabi weighted)
          tier 2: 3,164 other Indian, labelled fallback
 
     question -> Gemini embeddings -> vector store -> top-k
@@ -37,7 +37,7 @@ and answers questions with no ingredients in them at all. Coverage gives
 precision - it orders candidates by what can actually be cooked. Neither
 stage can do the other's job.
 
-At 301 documents a brute-force cosine is ~3 ms, so there is no vector
+At 910 documents a brute-force cosine is ~3 ms, so there is no vector
 database. FAISS or Chroma would earn their place past ~100k documents.
 
 See the README for the four dataset findings that shaped the corpus.

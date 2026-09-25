@@ -1,8 +1,16 @@
-# 🍲 Gujarati Recipe Bot
+# 🍲 Indian Recipe Bot
 
 **An AI-powered RAG chatbot.** Tell it what's in your kitchen and it tells you what you can actually cook tonight — grounded in a real recipe corpus, so it can't invent dishes that don't exist.
 
-301 Gujarati and Punjabi recipes, lacto-vegetarian and eggless. Built with **Python + LangChain + Google Gemini**.
+910 curated Indian recipes, lacto-vegetarian and eggless, weighted toward Gujarati and Punjabi. Built with **Python + LangChain + Google Gemini**.
+
+---
+
+## Watch the walkthrough
+
+**[▶ docs/recipe-bot-narrated.mp4](docs/recipe-bot-narrated.mp4)** — 2m 37s, narrated. The idea, the ranking function, the RAG pipeline, the four data bugs, and the app answering live.
+
+![Coverage beats similarity](docs/coverage-insight.gif)
 
 ---
 
@@ -49,7 +57,7 @@ This prompts on a blank line and echoes nothing, so the key never appears on scr
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. The first launch embeds all 301 recipes — about a minute, with a progress bar — and caches the vectors to `data/processed/`, so every later start is instant.
+Opens at `http://localhost:8501`. The first launch embeds a budgeted slice of the corpus — 400 recipes by default, about a minute with a progress bar — and caches the vectors to `data/processed/`, so every later start is instant. Un-embedded recipes still rank; they just score 0 on the semantic term. The sidebar has an **Embed 400 more** button to extend the index whenever you want.
 
 **Other ways to run the same engine:**
 
@@ -64,9 +72,9 @@ make data                  # rebuild the corpus from the raw dataset
 
 | Type this | What it shows |
 |---|---|
-| `I have besan, curd, ginger and green chilli` | Coverage-ranked Gujarati dishes |
+| `I have besan, curd, ginger and green chilli` | Coverage-ranked dishes you can actually finish |
 | `also add rice and jaggery` | Pantry persists across turns |
-| `something Gujarati for dinner` | No ingredients in the question — semantic retrieval handles it |
+| `something light for dinner` | No ingredients in the question — semantic retrieval handles it |
 | `do you have chicken biryani?` | It declines. The corpus is vegetarian and it won't pretend |
 | `I have broccoli, olives and feta` | Nothing matches — it says so and labels the alternatives |
 
@@ -79,7 +87,7 @@ make data                  # rebuild the corpus from the raw dataset
 | **Chat** | Multi-turn. The pantry persists, and "also add jaggery" extends it |
 | **Pantry sidebar** | Shows what it thinks you have; add or clear by hand |
 | **Retrieval panel** | Every reply expands to show which recipes were retrieved, their coverage %, ranking score and source link |
-| **Honest fallback** | When nothing Gujarati or Punjabi is cookable, it says so and labels the alternatives |
+| **Honest fallback** | When nothing clears the coverage floor, it says so and labels the alternatives |
 | **Grounded** | Every number in a reply is computed in Python, not predicted by the model |
 
 The pantry lives in a Python `set`, not in conversation history — exact, free to maintain, and impossible for the model to lose track of.
@@ -90,7 +98,7 @@ Gemini never answers from training data. It answers from recipes we retrieve and
 
 ```
                  ┌──────────────── INDEXING (once) ─────────────────┐
-  6,871 rows ──▶ filter & clean ──▶ 301 docs ──▶ Gemini embeddings ──▶ cached vectors
+  6,871 rows ──▶ filter & clean ──▶ 910 docs ──▶ Gemini embeddings ──▶ cached vectors
                  └──────────────────────────────────────────────────┘
 
                  ┌──────────────── QUERY (per message) ─────────────┐
@@ -107,13 +115,13 @@ Gemini never answers from training data. It answers from recipes we retrieve and
 
 | Stage | Component | What it does |
 |---|---|---|
-| **Retrieve** | `text-embedding-004` + cached numpy vectors | Embeds the question, finds the nearest recipes by cosine similarity |
+| **Retrieve** | `gemini-embedding-001` (discovered at runtime) + cached numpy vectors | Embeds the question, finds the nearest recipes by cosine similarity |
 | **Augment** | Prompt assembly in `src/rag.py` | Injects those recipes plus their computed coverage figures into the system prompt |
 | **Generate** | `ChatGoogleGenerativeAI`, `temperature=0.2` | Phrases a reply constrained to the supplied candidates |
 
 **Chunking:** one document per recipe. The data provides a natural boundary, so no chunk ever straddles two dishes.
 
-**Vector store:** brute-force cosine over 301 × 768 floats — a few milliseconds. FAISS or Chroma would earn their place past ~100k documents. Vectors are cached against a fingerprint of the corpus, so they're rebuilt only when the corpus changes.
+**Vector store:** brute-force cosine over 910 × 3,072 floats — a few milliseconds. FAISS or Chroma would earn their place past ~100k documents. Vectors are cached against a fingerprint of the corpus, so they're rebuilt only when the corpus changes.
 
 **Keeping it grounded:** the system prompt forbids inventing recipes or ingredients; temperature stays low because the bot reports facts; and all coverage percentages and missing-ingredient lists are computed in Python and handed to the model as text. Gemini is never asked to count.
 
@@ -134,8 +142,12 @@ coverage = |pantry ∩ recipe| / |recipe|
 Dividing by the **recipe's** size, not the pantry's, is the whole trick — it's asymmetric, and it punishes long recipes you can't finish. Final ranking:
 
 ```
-score = 0.55·coverage + 0.25·similarity − 0.05·(missing/k) + 0.15·regional_prior
+score = 0.50·coverage + 0.20·similarity − 0.05·(missing/k) + 0.15·region_prior + 0.10·utilisation
 ```
+
+Coverage asks *can I cook it*. Utilisation — `|pantry ∩ recipe| / |pantry|`, the same fraction flipped — asks *is it worth cooking*, so a dish that uses more of what you already have edges ahead of one that uses two items.
+
+Staples are excluded from the denominator. Salt appears in 84% of the corpus, turmeric in 58%, oil in 52%; counting them as ingredients you must "have" pushed every recipe below the floor for a small pantry. [`config/pantry_staples.yaml`](config/pantry_staples.yaml) lists the 39 assumed items.
 
 Semantic retrieval provides **recall** (survives "aubergine" vs "brinjal", handles *"something light for dinner"*). Coverage re-ranking provides **precision**. Neither stage can do the other's job — that's why there are two.
 
@@ -151,8 +163,8 @@ The regional prior is 1.0 for Gujarati, 0.4 for Punjabi, and capped so it can ne
 | Vegetarian diet labels | 5,875 |
 | After ingredient blocklist | 5,620 |
 | Untranslated rows dropped | −719 |
-| **Core — Gujarati 132 + Punjabi 169** | **301** |
-| Fallback tier — other Indian, labelled | 3,164 |
+| Quality gate — 3–12 shoppable ingredients, real instructions | |
+| **Curated corpus — all-India, Gujarati and Punjabi weighted** | **910** |
 
 ## Four things the data got wrong
 
@@ -177,7 +189,7 @@ Written the obvious way, the Gujarati weighting would have done nothing, silentl
 
 `"egg" in text` drops 143 recipes and **119 contain no egg** — they're aubergine dishes, because the dataset lists brinjal's synonyms and one of them is "Eggplant". Word-boundary matching on parsed entities drops 29 instead, and correctly keeps the recipes whose names contain *egg**less***.
 
-Same lesson as the meat blocklist from the other direction: **match parsed entities, never raw strings.** The error budget is asymmetric on purpose — wrongly dropping a valid recipe costs one row out of 301; wrongly keeping a meat or egg recipe breaks the premise.
+Same lesson as the meat blocklist from the other direction: **match parsed entities, never raw strings.** The error budget is asymmetric on purpose — wrongly dropping a valid recipe costs one row out of 910; wrongly keeping a meat or egg recipe breaks the premise.
 
 ## Project structure
 
@@ -185,11 +197,11 @@ Same lesson as the meat blocklist from the other direction: **match parsed entit
 app.py                  Streamlit chat UI — the only file importing Streamlit
 src/rag.py              retrieval, coverage ranking, grounded generation
 src/corpus.py           ingredient parsing, coverage scoring, vocabulary
-src/build_corpus.py     6,871 raw rows → 301 curated
+src/build_corpus.py     6,871 raw rows → 910 curated
 src/chat_cli.py         the same engine in the terminal
 src/paths.py            every filesystem path, in one place
-config/                 the excluded-ingredient blocklist
-data/recipes_core.csv   the 301, committed so the app runs immediately
+config/                 ingredient blocklist, pantry staples, dish list
+data/recipes_core.csv   the 910, committed so the app runs immediately
 notebooks/              a step-by-step walkthrough of how it was built
 tests/                  corpus invariants and scaffolding checks
 ```

@@ -1,4 +1,4 @@
-"""Gujarati Recipe Bot - a RAG chatbot over 301 Gujarati & Punjabi recipes.
+"""Indian Recipe Bot - a RAG chatbot over 910 curated Indian recipes.
 
 Run with:  streamlit run app.py
 
@@ -15,13 +15,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-st.set_page_config(page_title="Gujarati Recipe Bot", page_icon="🍲",
+st.set_page_config(page_title="Indian Recipe Bot", page_icon="🍲",
                    layout="centered", initial_sidebar_state="expanded")
 
 # --- API key -----------------------------------------------------------------
 
 if not (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")):
-    st.title("🍲 Gujarati Recipe Bot")
+    st.title("🍲 Indian Recipe Bot")
     st.warning("No Gemini API key found.")
     st.markdown(
         "Create one free at [aistudio.google.com/apikey]"
@@ -63,7 +63,7 @@ def get_engine():
 try:
     engine = get_engine()
 except Exception as error:  # noqa: BLE001 - a clear message beats a traceback
-    st.title("🍲 Gujarati Recipe Bot")
+    st.title("🍲 Indian Recipe Bot")
     st.error(f"Couldn't start the engine.\n\n```\n{error}\n```")
     st.markdown(
         "Run `python -m src.models` to see which models your API key supports. "
@@ -134,7 +134,7 @@ with st.sidebar:
 
 # --- main --------------------------------------------------------------------
 
-st.title("🍲 Gujarati Recipe Bot")
+st.title("🍲 Indian Recipe Bot")
 st.caption("Tell me what's in your kitchen and I'll find what you can actually cook.")
 
 if not st.session_state.messages:

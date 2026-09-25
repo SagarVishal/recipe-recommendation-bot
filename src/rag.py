@@ -121,7 +121,7 @@ class RecipeRAG:
     def build_index(self, progress=None, budget: Optional[int] = None) -> np.ndarray:
         """Embed every core recipe once, then cache to disk.
 
-        Re-embedding 301 recipes on every launch would be slow and would burn
+        Re-embedding the corpus on every launch would be slow and would burn
         API quota for no reason, so the vectors are written alongside a
         fingerprint of the corpus and reused until the corpus changes.
         """
