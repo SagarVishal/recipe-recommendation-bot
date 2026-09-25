@@ -106,16 +106,35 @@ def embed_model() -> str:
     return ranked[0]
 
 
+# The newest model is not always the best choice: the pinned client may
+# predate it. langchain-google-genai 2.1.12 (the last release supporting
+# Python 3.9) hangs indefinitely against gemini-3.x. So selection prefers the
+# newest model that this client is known to handle, and callers can walk the
+# ranked list when one fails.
+MAX_KNOWN_GOOD_VERSION = float(os.environ.get("GEMINI_MAX_VERSION", "2.9"))
+
+
+@lru_cache(maxsize=1)
+def ranked_chat_models() -> Tuple[str, ...]:
+    """Chat models this key can use, best first.
+
+    Models newer than MAX_KNOWN_GOOD_VERSION are demoted rather than dropped,
+    so raising the cap (or upgrading the client) is a one-line change.
+    """
+    ranked = _rank(available()[1], "flash")
+    if not ranked:
+        raise RuntimeError("This API key exposes no usable chat models.")
+    known = [m for m in ranked if _version(m)[0] <= MAX_KNOWN_GOOD_VERSION]
+    newer = [m for m in ranked if _version(m)[0] > MAX_KNOWN_GOOD_VERSION]
+    return tuple(known + newer)
+
+
 @lru_cache(maxsize=1)
 def chat_model() -> str:
     override = os.environ.get("GEMINI_CHAT_MODEL")
     if override:
         return override
-    # Flash models: fast and cheap, which is what a chat UI wants.
-    ranked = _rank(available()[1], "flash")
-    if not ranked:
-        raise RuntimeError("This API key exposes no usable chat models.")
-    return ranked[0]
+    return ranked_chat_models()[0]
 
 
 def main() -> None:
@@ -130,8 +149,10 @@ def main() -> None:
         print(f"   {'->' if name == embed_model() else '  '} {name}")
 
     print(f"\nChat models, ranked ({len(_usable(chat_all))} usable of {len(chat_all)}):")
-    for name in _rank(chat_all, "flash")[:10]:
-        print(f"   {'->' if name == chat_model() else '  '} {name}")
+    for name in ranked_chat_models()[:10]:
+        marker = "->" if name == chat_model() else "  "
+        note = "" if _version(name)[0] <= MAX_KNOWN_GOOD_VERSION else "  (newer than the pinned client)"
+        print(f"   {marker} {name}{note}")
 
     skipped = sorted(set(chat_all) - set(_usable(chat_all)))
     print(f"\nSkipped {len(skipped)} specialised or preview models "

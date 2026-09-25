@@ -47,3 +47,18 @@ def test_an_override_wins_without_calling_the_api(monkeypatch):
     models.chat_model.cache_clear()
     assert models.chat_model() == "gemini-2.5-pro"
     models.chat_model.cache_clear()
+
+
+def test_models_newer_than_the_client_are_demoted_not_chosen():
+    """langchain-google-genai 2.1.12 (last release supporting Python 3.9)
+    hangs indefinitely against gemini-3.x, so a naive 'pick the newest'
+    rule produced an app that looked broken. Newer models are kept in the
+    list - raising the cap is a one-line change - but not chosen first."""
+    ranked = models._rank(CHAT, "flash")
+    cap = models.MAX_KNOWN_GOOD_VERSION
+    known = [m for m in ranked if models._version(m)[0] <= cap]
+    newer = [m for m in ranked if models._version(m)[0] > cap]
+
+    assert known[0] == "gemini-2.5-flash"
+    assert "gemini-3.8-flash" in newer, "newer models stay available as fallbacks"
+    assert models._version("gemini-3.8-flash")[0] > cap

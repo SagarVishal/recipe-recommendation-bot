@@ -22,7 +22,7 @@ import numpy as np
 
 from src import paths
 from src.corpus import coverage, load_recipes, utilisation, vocabulary
-from src.models import chat_model, embed_model
+from src.models import chat_model, embed_model, ranked_chat_models
 
 # Ranking weights. Coverage dominates; the regional prior only breaks ties.
 W_COVERAGE, W_SIMILARITY, W_MISSING, W_REGION, W_USED = 0.50, 0.20, 0.05, 0.15, 0.10
@@ -31,6 +31,9 @@ REGION_PRIOR = {"Gujarati": 1.0, "Punjabi": 0.4}
 # Below this, nothing in the corpus is a good match - the bot says so.
 FALLBACK_THRESHOLD = 0.34
 CANDIDATES = 5
+
+# A hanging chat call is worse than a failed one - it looks like a broken app.
+CHAT_TIMEOUT_SECONDS = int(os.environ.get("CHAT_TIMEOUT", "45"))
 
 # Gemini's free tier allows 100 embed requests per minute, and the client
 # sends one request per document - so a 275-recipe corpus hits the wall at
@@ -318,8 +321,21 @@ class RecipeRAG:
             f"CANDIDATES:\n{self._format(candidates)}"
         )))
 
-        llm = ChatGoogleGenerativeAI(model=chat_model(), temperature=0.2)
-        return llm.invoke(messages).content, candidates, thin
+        # Walk the ranked models if one hangs or errors. A silent hang is the
+        # worst failure mode in a chat UI, so every call carries a timeout.
+        last_error: Optional[Exception] = None
+        for name in (chat_model(),) + tuple(ranked_chat_models()):
+            try:
+                llm = ChatGoogleGenerativeAI(
+                    model=name, temperature=0.2,
+                    timeout=CHAT_TIMEOUT_SECONDS, max_retries=1,
+                )
+                return llm.invoke(messages).content, candidates, thin
+            except Exception as error:  # noqa: BLE001 - try the next model
+                last_error = error
+        raise RuntimeError(
+            f"No Gemini chat model responded. Last error: {last_error}"
+        )
 
 
 def api_key_present() -> bool:
