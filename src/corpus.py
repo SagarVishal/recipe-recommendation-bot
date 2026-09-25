@@ -54,17 +54,41 @@ def parse_ingredients(raw: object) -> Set[str]:
 
 
 def coverage(pantry: Set[str], recipe: Set[str]) -> Tuple[float, List[str]]:
-    """Fraction of the recipe the pantry supplies, and what is missing.
+    """Fraction of the recipe's shoppable ingredients the pantry supplies.
 
-    Divides by the RECIPE's size, not the pantry's. That asymmetry is the
-    point: a sixteen-ingredient dish containing everything you own is still
-    not cookable, and symmetric cosine similarity cannot express that.
+    Two things make this the right measure rather than cosine similarity:
+
+    1. It divides by the RECIPE's size, not the pantry's. A sixteen-ingredient
+       dish containing everything you own is still not cookable, and a
+       symmetric similarity score cannot express that.
+    2. Staples are excluded from the denominator. Salt is in 84% of these
+       recipes; counting it as "missing" is noise, and with staples included
+       a realistic four-item pantry could not exceed 25% coverage on any
+       recipe in the corpus.
     """
-    if not recipe:
-        return 0.0, []
-    have = {item for item in recipe
+    shoppable = {item for item in recipe if item not in staples()}
+    if not shoppable:
+        return 1.0, []          # a dish of nothing but cupboard staples
+    have = {item for item in shoppable
             if any(p in item or item in p for p in pantry)}
-    return len(have) / len(recipe), sorted(recipe - have)
+    return len(have) / len(shoppable), sorted(shoppable - have)
+
+
+@lru_cache(maxsize=1)
+def staples() -> frozenset:
+    """Ingredients assumed present in any kitchen, read from config.
+
+    Excluded from the coverage denominator so that "coverage" means the
+    fraction of the ingredients you would actually have to shop for.
+    """
+    import yaml
+
+    with open(paths.CONFIG_DIR / "pantry_staples.yaml") as handle:
+        config = yaml.safe_load(handle) or {}
+    items = set()
+    for group in config.values():
+        items.update(str(item).lower().strip() for item in group)
+    return frozenset(items)
 
 
 @lru_cache(maxsize=2)

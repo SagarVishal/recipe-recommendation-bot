@@ -76,3 +76,32 @@ def test_every_recipe_has_ingredients(core):
     """A NaN here propagates into search_text and breaks the embedding call."""
     assert core.ingredients.notna().all()
     assert (core.ingredients.str.strip() != "").all()
+
+
+def test_staples_are_excluded_from_the_coverage_denominator():
+    """Salt is in 84% of recipes. Counting it as 'missing' made a realistic
+    four-item pantry incapable of scoring above 25% on anything, so the
+    fallback tier fired on every query."""
+    from src.corpus import coverage, staples
+
+    assert "salt" in staples()
+    assert "turmeric powder" in staples()
+    # Paneer and vegetables are the point of the recommendation, not staples.
+    assert "paneer" not in staples()
+    assert "onion" not in staples()
+
+    recipe = {"besan", "curd", "salt", "turmeric powder", "oil", "cumin seeds"}
+    score, missing = coverage({"besan", "curd"}, recipe)
+    assert score == 1.0, "pantry covers every shoppable ingredient"
+    assert missing == []
+
+
+def test_a_realistic_pantry_finds_cookable_core_recipes(core):
+    """The regression that the live demo exposed: with staples in the
+    denominator, zero recipes cleared the 34% fallback threshold."""
+    from src.corpus import coverage, parse_ingredients
+
+    pantry = {"besan", "curd", "ginger", "green chilli"}
+    scores = [coverage(pantry, parse_ingredients(i))[0] for i in core.ingredients]
+    assert max(scores) > 0.5
+    assert sum(1 for s in scores if s >= 0.34) >= 5

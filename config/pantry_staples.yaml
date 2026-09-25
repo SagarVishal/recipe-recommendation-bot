@@ -1,0 +1,59 @@
+# Ingredients assumed present in any working kitchen.
+#
+# These are excluded from the coverage denominator. Coverage is meant to
+# answer "how much of this dish would I have to shop for?", and nobody buys
+# salt to make a curry. Measured against this corpus, salt appears in 84% of
+# recipes, turmeric in 58%, oil in 52% - leaving them in the denominator made
+# a realistic four-item pantry mathematically incapable of scoring above 25%,
+# so the fallback tier fired on every single query.
+#
+# Kept deliberately tight: only things that are genuinely always in the
+# cupboard. Paneer, yogurt and vegetables are NOT staples - those are the
+# ingredients the recommendation is actually about.
+
+seasoning:
+  - salt
+  - black salt
+  - kala namak
+  - sugar
+  - water
+  - hot water
+  - warm water
+
+fats:
+  - oil
+  - sunflower oil
+  - cooking oil
+  - vegetable oil
+  - refined oil
+  - ghee
+  - extra virgin olive oil
+  - olive oil
+
+ground_spices:
+  - turmeric powder
+  - haldi
+  - red chilli powder
+  - lal mirch
+  - coriander powder
+  - dhania powder
+  - cumin powder
+  - jeera powder
+  - garam masala powder
+  - garam masala
+  - black pepper powder
+  - black pepper
+  - amchur
+  - dry mango powder
+
+whole_spices:
+  - cumin seeds
+  - jeera
+  - mustard seeds
+  - rai
+  - asafoetida
+  - hing
+  - dhania
+  - coriander seeds
+  - bay leaf
+  - tej patta
