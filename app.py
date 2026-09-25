@@ -74,7 +74,7 @@ except Exception as error:  # noqa: BLE001 - a clear message beats a traceback
     )
     st.stop()
 
-st.session_state.setdefault("pantry", set())
+st.session_state.setdefault("pantry", set(DEFAULT_PANTRY))
 st.session_state.setdefault("messages", [])
 
 # --- sidebar -----------------------------------------------------------------
@@ -94,23 +94,40 @@ with st.sidebar:
     if col_b.button("Clear", use_container_width=True):
         st.session_state.pantry = set()
         st.rerun()
+    if st.button("Reset to a typical kitchen", use_container_width=True):
+        st.session_state.pantry = set(DEFAULT_PANTRY)
+        st.rerun()
 
     st.divider()
     st.subheader("Corpus")
     regions = engine.core.region.value_counts()
     st.metric("Core recipes", len(engine.core))
     st.caption(
-        f"Gujarati {regions.get('Gujarati', 0)} · Punjabi {regions.get('Punjabi', 0)}  \n"
-        f"Fallback tier: {len(engine.fallback)} other Indian"
+        f"Gujarati {regions.get('Gujarati', 0)} · Punjabi {regions.get('Punjabi', 0)} · "
+        f"{regions.get('other', 0)} other Indian"
     )
     st.caption("Lacto-vegetarian · eggless · Gujarati-weighted ranking")
 
-    models = st.session_state.get("models")
-    if models:
-        st.divider()
-        st.subheader("Models")
-        st.caption(f"embed `{models[0]}`  \nchat `{models[1]}`")
-        st.caption("Resolved from your API key at startup.")
+    st.divider()
+    st.subheader("Semantic index")
+    done, total = engine.embedded_count, len(engine.core)
+    st.progress(done / total if total else 0.0)
+    st.caption(f"{done} of {total} recipes embedded")
+    if done < total:
+        st.caption(
+            "Coverage ranking works on all of them already. Embedding adds "
+            "the semantic half \u2014 matching *brinjal* to *aubergine*, and "
+            "answering questions with no ingredients in them."
+        )
+        if st.button("Embed 400 more", use_container_width=True):
+            bar = st.progress(0.0, text="Embedding\u2026")
+            engine._core_vectors = engine.build_index(
+                budget=400,
+                progress=lambda d, t: bar.progress(
+                    d / t, text=f"Embedding {d}/{t} \u2014 about "
+                                f"{int((t - d) * 60 / 85 // 60)}m left\u2026"))
+            bar.empty()
+            st.rerun()
 
     st.divider()
     if st.button("Reset conversation", use_container_width=True):
@@ -126,9 +143,9 @@ st.caption("Tell me what's in your kitchen and I'll find what you can actually c
 if not st.session_state.messages:
     st.markdown("**Try:**")
     examples = [
-        "I have besan, curd, ginger and green chilli",
-        "something Gujarati for dinner",
-        "I have potatoes, onion and peas",
+        "What can I make right now?",
+        "Something Gujarati for dinner",
+        "I also have paneer and spinach",
     ]
     cols = st.columns(len(examples))
     for col, example in zip(cols, examples):
@@ -173,8 +190,8 @@ if prompt:
                     f"Something went wrong calling Gemini:\n\n```\n{error}\n```", [], False)
         st.markdown(reply)
         if widened and candidates:
-            st.info("Nothing in the core Gujarati/Punjabi collection matched well, "
-                    "so some suggestions come from the wider Indian corpus.")
+            st.info("Nothing matches this pantry closely \u2014 these are the "
+                    "nearest options.")
         if candidates:
             with st.expander("What the retriever found, and why"):
                 for c in candidates:

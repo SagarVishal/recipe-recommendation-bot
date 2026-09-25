@@ -74,6 +74,21 @@ def coverage(pantry: Set[str], recipe: Set[str]) -> Tuple[float, List[str]]:
     return len(have) / len(shoppable), sorted(shoppable - have)
 
 
+def utilisation(pantry: Set[str], recipe: Set[str]) -> float:
+    """How much of the PANTRY a recipe actually uses.
+
+    Coverage alone ranks "Steamed Rice" at 100% for any pantry containing
+    rice - true, and a useless suggestion. This is the complementary,
+    pantry-side measure, and it is the reason both directions are needed:
+    coverage says "can I cook it", utilisation says "is it worth cooking".
+    """
+    if not pantry:
+        return 0.0
+    used = {p for p in pantry
+            if any(p in item or item in p for item in recipe)}
+    return len(used) / len(pantry)
+
+
 @lru_cache(maxsize=1)
 def staples() -> frozenset:
     """Ingredients assumed present in any kitchen, read from config.

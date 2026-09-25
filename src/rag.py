@@ -22,11 +22,11 @@ import numpy as np
 import pandas as pd
 
 from src import paths
-from src.corpus import coverage, load_recipes, vocabulary
+from src.corpus import coverage, load_recipes, utilisation, vocabulary
 from src.models import chat_model, embed_model
 
 # Ranking weights. Coverage dominates; the regional prior only breaks ties.
-W_COVERAGE, W_SIMILARITY, W_MISSING, W_REGION = 0.55, 0.25, 0.05, 0.15
+W_COVERAGE, W_SIMILARITY, W_MISSING, W_REGION, W_USED = 0.50, 0.20, 0.05, 0.15, 0.10
 REGION_PRIOR = {"Gujarati": 1.0, "Punjabi": 0.4}
 
 # Below this, tier 1 has nothing worth offering and we widen - and say so.
@@ -39,6 +39,13 @@ CANDIDATES = 5
 EMBED_REQUESTS_PER_MINUTE = 85
 EMBED_BATCH = 20
 MAX_RETRIES = 6
+
+# Embeddings are OPTIONAL. Coverage scoring needs none of them, so the app is
+# fully usable from the first second; the semantic term simply contributes 0
+# for recipes that have not been embedded yet. Each run embeds up to this many
+# more, resuming where the last one stopped, so a free-tier daily quota is a
+# pause rather than a cliff.
+EMBED_BUDGET = int(os.environ.get("EMBED_BUDGET", "400"))
 
 SYSTEM_PROMPT = """You are a warm, practical cooking assistant for Gujarati \
 and Punjabi vegetarian food. The corpus is eggless and lacto-vegetarian.
@@ -76,8 +83,6 @@ class RecipeRAG:
 
     def __init__(self, core_only: bool = True) -> None:
         self.core = load_recipes(core_only=True)
-        self.fallback = load_recipes(core_only=False)
-        self.fallback = self.fallback[self.fallback.tier == 2].reset_index(drop=True)
         self._embeddings = None
         self._core_vectors: Optional[np.ndarray] = None
 
@@ -94,12 +99,24 @@ class RecipeRAG:
         return self._embeddings
 
     def _corpus_fingerprint(self) -> str:
-        """Includes the model name: different models produce incompatible
-        vectors, so switching models must invalidate the cache."""
-        joined = embed_model() + "|" + "|".join(self.core["name"].tolist())
+        """Hash of the corpus alone - deliberately no API call.
+
+        The embedding model name is stored beside it rather than mixed in, so
+        that reading the cache (and running coverage-only) works with no API
+        key at all. Only actually embedding needs the key.
+        """
+        joined = "|".join(self.core["name"].tolist())
         return hashlib.sha256(joined.encode()).hexdigest()[:16]
 
-    def build_index(self, progress=None) -> np.ndarray:
+    @staticmethod
+    def _read_meta() -> Tuple[str, str]:
+        meta = paths.PROCESSED_DIR / "vectors.meta"
+        if not meta.exists():
+            return "", ""
+        parts = meta.read_text().strip().split("|")
+        return (parts[0], parts[1] if len(parts) > 1 else "")
+
+    def build_index(self, progress=None, budget: Optional[int] = None) -> np.ndarray:
         """Embed every core recipe once, then cache to disk.
 
         Re-embedding 301 recipes on every launch would be slow and would burn
@@ -108,10 +125,30 @@ class RecipeRAG:
         """
         paths.ensure_dirs()
         fingerprint = self._corpus_fingerprint()
-        meta = paths.PROCESSED_DIR / "vectors.meta"
-        if paths.VECTORS_NPY.exists() and meta.exists():
-            if meta.read_text().strip() == fingerprint:
-                return np.load(paths.VECTORS_NPY)
+        budget = EMBED_BUDGET if budget is None else budget
+
+        cached_fingerprint, cached_model = self._read_meta()
+        existing = np.zeros((0, 0), dtype=np.float32)
+        if paths.VECTORS_NPY.exists() and cached_fingerprint == fingerprint:
+            existing = np.load(paths.VECTORS_NPY)
+            if existing.shape[0] >= len(self.core) or budget <= 0:
+                return existing
+        elif paths.VECTORS_NPY.exists():
+            # Corpus changed, so the cached vectors describe different recipes.
+            # Ignoring them is enough - they get overwritten on the next write.
+            # Deleting is best-effort: the directory may be read-only.
+            for stale in (paths.VECTORS_NPY, paths.PROCESSED_DIR / "vectors.partial.npy"):
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+        if budget <= 0:
+            return existing
+
+        # Only from here on do we need an API key.
+        model = embed_model()
+        if cached_model and cached_model != model and existing.size:
+            existing = np.zeros((0, 0), dtype=np.float32)   # different model
 
         texts = [str(t) for t in self.core["search_text"].tolist()]
         blank = [i for i, t in enumerate(texts) if not t.strip()]
@@ -121,7 +158,7 @@ class RecipeRAG:
                 "Rebuild the corpus with: python -m src.build_corpus"
             )
 
-        vectors: List[List[float]] = []
+        vectors: List[List[float]] = existing.tolist() if existing.size else []
         batch = EMBED_BATCH
         pause = 60.0 / EMBED_REQUESTS_PER_MINUTE * batch   # seconds per batch
         partial = paths.PROCESSED_DIR / "vectors.partial.npy"
@@ -131,21 +168,26 @@ class RecipeRAG:
             if done.shape[0] < len(texts):
                 vectors = done.tolist()
 
-        for start in range(len(vectors), len(texts), batch):
+        stop_at = min(len(texts), len(vectors) + budget)
+        for start in range(len(vectors), stop_at, batch):
             chunk = texts[start:start + batch]
             began = time.monotonic()
             vectors.extend(self._embed_with_retry(chunk))
             np.save(partial, np.asarray(vectors, dtype=np.float32))
             if progress:
-                progress(min(start + batch, len(texts)), len(texts))
-            if start + batch < len(texts):
+                progress(min(start + batch, stop_at), stop_at)
+            if start + batch < stop_at:
                 time.sleep(max(0.0, pause - (time.monotonic() - began)))
-        partial.unlink(missing_ok=True)
+        try:
+            partial.unlink()
+        except OSError:
+            pass
 
         array = np.asarray(vectors, dtype=np.float32)
-        array /= np.linalg.norm(array, axis=1, keepdims=True)  # unit length
+        if array.size:
+            array /= np.linalg.norm(array, axis=1, keepdims=True)  # unit length
         np.save(paths.VECTORS_NPY, array)
-        meta.write_text(fingerprint)
+        (paths.PROCESSED_DIR / "vectors.meta").write_text(f"{fingerprint}|{model}")
         return array
 
     def _embed_with_retry(self, chunk: List[str]) -> List[List[float]]:
@@ -176,21 +218,32 @@ class RecipeRAG:
 
     @property
     def vectors(self) -> np.ndarray:
+        """Whatever has been embedded so far. Never triggers an API call."""
         if self._core_vectors is None:
-            self._core_vectors = self.build_index()
+            self._core_vectors = self.build_index(budget=0)
         return self._core_vectors
 
     # ---------- retrieval ----------
 
-    def semantic_scores(self, question: str) -> np.ndarray:
-        """Cosine similarity of the question against all core recipes.
+    @property
+    def embedded_count(self) -> int:
+        return 0 if self.vectors is None or self.vectors.size == 0 else self.vectors.shape[0]
 
-        Brute force over 301 x 768 floats: about 3 ms. A vector database
+    def semantic_scores(self, question: str) -> np.ndarray:
+        """Cosine similarity of the question against the embedded recipes.
+
+        Returns zeros for any recipe not embedded yet, so partial coverage
+        degrades the ranking gently instead of breaking it. Brute force over
+        a few thousand vectors is a couple of milliseconds; a vector database
         would earn its place past ~100k documents, not here.
         """
+        scores = np.zeros(len(self.core), dtype=np.float32)
+        if self.embedded_count == 0:
+            return scores
         q = np.asarray(self.embeddings.embed_query(question), dtype=np.float32)
         q /= np.linalg.norm(q)
-        return self.vectors @ q
+        scores[:self.embedded_count] = self.vectors @ q
+        return scores
 
     def parse_pantry(self, text: str) -> Set[str]:
         """Pull known ingredients out of free text, longest match first."""
@@ -205,8 +258,9 @@ class RecipeRAG:
         return found
 
     def rank(self, question: str, pantry: Set[str]) -> Tuple[List[Candidate], bool]:
-        """Score tier 1; widen to tier 2 only if nothing clears the threshold."""
-        sims = self.semantic_scores(question) if question.strip() else np.zeros(len(self.core))
+        """Score every recipe. Returns candidates and whether any is cookable."""
+        sims = (self.semantic_scores(question) if question.strip()
+                else np.zeros(len(self.core)))
         results: List[Candidate] = []
         for i, row in self.core.iterrows():
             cov, missing = coverage(pantry, row["entities"])
@@ -215,32 +269,18 @@ class RecipeRAG:
                 + W_SIMILARITY * float(sims[i])
                 - W_MISSING * min(len(missing), 10) / 10
                 + W_REGION * REGION_PRIOR.get(row["region"], 0.0)
+                + W_USED * utilisation(pantry, row["entities"])
             )
             results.append(Candidate(
                 name=row["name"], region=row["region"], course=row["course"],
-                coverage=cov, missing=missing, score=score, tier=1,
+                coverage=cov, missing=missing, score=score,
+                tier=1 if row["region"] in REGION_PRIOR else 2,
                 url=row["url"], time_mins=row["total_time_mins"],
                 ingredients=row["ingredients"],
             ))
         results.sort(key=lambda c: -c.score)
-
-        widened = not pantry or results[0].coverage < FALLBACK_THRESHOLD
-        if widened and pantry:
-            extra: List[Candidate] = []
-            for _, row in self.fallback.iterrows():
-                cov, missing = coverage(pantry, row["entities"])
-                if cov <= results[0].coverage:
-                    continue
-                extra.append(Candidate(
-                    name=row["name"], region=row["cuisine"], course=row["course"],
-                    coverage=cov, missing=missing, score=cov, tier=2,
-                    url=row["url"], time_mins=row["total_time_mins"],
-                    ingredients=row["ingredients"],
-                ))
-            extra.sort(key=lambda c: -c.coverage)
-            if extra:
-                return (results[:2] + extra[:2])[:CANDIDATES], True
-        return results[:CANDIDATES], False
+        thin = bool(pantry) and results[0].coverage < FALLBACK_THRESHOLD
+        return results[:CANDIDATES], thin
 
     # ---------- generation ----------
 
@@ -252,7 +292,7 @@ class RecipeRAG:
             blocks.append(
                 f"{c.name}\n"
                 f"Region: {c.region} | Course: {c.course} | {c.time_mins} mins"
-                f" | {'OUTSIDE the Gujarati/Punjabi collection' if c.tier == 2 else 'core collection'}\n"
+                f"{' | Gujarati/Punjabi' if c.tier == 1 else ''}\n"
                 f"Coverage: {c.coverage:.0%} of ingredients available. Missing: {missing}\n"
                 f"Ingredients: {c.ingredients[:400]}\n"
                 f"Source: {c.url}"
@@ -264,10 +304,10 @@ class RecipeRAG:
         from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        candidates, widened = self.rank(question, pantry)
-        note = ("\nNOTE: nothing in the core Gujarati/Punjabi collection matched "
-                "well. Say so clearly before suggesting the alternatives, and "
-                "name which cuisine they come from.") if widened else ""
+        candidates, thin = self.rank(question, pantry)
+        note = ("\nNOTE: no recipe matches this pantry well. Say so plainly "
+                "first, then suggest the closest options and what one extra "
+                "ingredient would unlock.") if thin else ""
 
         messages = [SystemMessage(content=SYSTEM_PROMPT + note)]
         for role, text in (history or [])[-6:]:

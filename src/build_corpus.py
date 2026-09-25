@@ -95,6 +95,52 @@ def matches_dish(title: str, dishes: list) -> bool:
     return any(contains_term(title, dish) for dish in dishes)
 
 
+TARGET_SIZE = 900
+MIN_SHOPPABLE, MAX_SHOPPABLE = 3, 12
+MIN_INSTRUCTIONS = 400
+
+
+def select_quality(df: pd.DataFrame) -> pd.DataFrame:
+    """Curate a smaller, better corpus instead of keeping everything.
+
+    3,446 rows sounds better than 900 and answers worse. Recipes with one or
+    two shoppable ingredients ("Steamed Rice") match any pantry at 100% and
+    recommend nothing; recipes with twenty are never cookable. Both crowd out
+    the useful middle. A smaller corpus also embeds fully inside the free
+    tier's quota, so semantic search actually covers all of it rather than a
+    fraction.
+
+    Gujarati and Punjabi recipes are kept in full - they are the weighted
+    regions - and the rest is filled to TARGET_SIZE with a spread across
+    courses so the bot can answer breakfast, snack and dessert questions
+    rather than only lunch.
+    """
+    from src.corpus import parse_ingredients, staples
+
+    staple_set = staples()
+    entities = df["ingredients"].map(parse_ingredients)
+    shoppable = entities.map(lambda e: len([x for x in e if x not in staple_set]))
+
+    usable = df[
+        shoppable.between(MIN_SHOPPABLE, MAX_SHOPPABLE)
+        & (df["instructions"].str.len() >= MIN_INSTRUCTIONS)
+    ].copy()
+
+    keep = usable[usable.region.isin(["Gujarati", "Punjabi"])]
+    rest = usable[~usable.index.isin(keep.index)]
+
+    # Spread the remainder across courses rather than taking 900 lunches.
+    budget = max(0, TARGET_SIZE - len(keep))
+    courses = rest["course"].value_counts()
+    per_course = {c: max(8, round(budget * n / len(rest))) for c, n in courses.items()}
+    picked = [
+        group.sample(min(len(group), per_course.get(course, 0)), random_state=7)
+        for course, group in rest.groupby("course")
+    ]
+    selected = pd.concat([keep] + picked).drop_duplicates(subset=["name"])
+    return selected.reset_index(drop=True)
+
+
 def build() -> pd.DataFrame:
     df = pd.read_csv(paths.RAW_DIR / "IndianFoodDataset.csv")
     start = len(df)
@@ -133,8 +179,12 @@ def build() -> pd.DataFrame:
     df.loc[is_pun, "region"] = "Punjabi"
     df.loc[is_guj, "region"] = "Gujarati"
     df["tier"] = 2
-    df.loc[is_guj | is_pun, "tier"] = 1
-    df = df[(df.tier == 1) | is_indian].copy()
+    # Tier 1 is every Indian vegetarian eggless recipe. Gujarati and
+    # Punjabi are a ranking preference (REGION_PRIOR), not a corpus
+    # boundary - restricting to 275 recipes left most pantries with
+    # nothing cookable, which is a worse bot, not a more focused one.
+    df.loc[is_indian, "tier"] = 1
+    df = df[df.tier == 1].copy()
 
     df = df.rename(columns={
         "TranslatedRecipeName": "name",
@@ -166,14 +216,16 @@ def build() -> pd.DataFrame:
 
     df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
 
+    df = select_quality(df)
+
     print(f"raw rows                 {start}")
     print(f"after vegetarian diets   {after_diet}")
     print(f"after ingredient blocklist {after_blocklist}")
-    print(f"tier 1 (Gujarati+Punjabi) {(df.tier == 1).sum()}")
+    print(f"after quality curation   {len(df)}")
     print(f"  Gujarati               {(df.region == 'Gujarati').sum()}")
     print(f"  Punjabi                {(df.region == 'Punjabi').sum()}")
     print(f"dropped, still in Hindi  {dropped_lang}")
-    print(f"tier 2 (other Indian)    {(df.tier == 2).sum()}")
+    print(f"  other regions          {(df.region == 'other').sum()}")
     return df
 
 

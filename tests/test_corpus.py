@@ -21,15 +21,24 @@ def core():
     return pd.read_csv(paths.CORE_CSV)
 
 
-def test_corpus_is_not_empty(core):
-    assert len(core) > 250
+def test_corpus_is_curated_not_dumped(core):
+    """Small and good beats large and noisy: trivial one-ingredient recipes
+    match every pantry at 100% and recommend nothing."""
+    from src.corpus import parse_ingredients, staples
+
+    assert 600 < len(core) < 1500
+    shoppable = core.ingredients.map(
+        lambda i: len([e for e in parse_ingredients(i) if e not in staples()]))
+    assert shoppable.min() >= 3
+    assert shoppable.max() <= 12
 
 
 def test_both_regions_present_and_gujarati_survived_the_bom(core):
     """An equality check on Cuisine matches zero rows; this proves we didn't."""
     counts = core.region.value_counts()
-    assert counts.get("Gujarati", 0) > 100
-    assert counts.get("Punjabi", 0) > 100
+    assert counts.get("Gujarati", 0) > 50
+    assert counts.get("Punjabi", 0) > 50
+    assert counts.get("other", 0) > 300, "corpus should span all of India"
 
 
 def test_no_meat_or_fish_survived(core):
