@@ -21,3 +21,4 @@ jupyter>=1.0
 notebook>=7.0
 ipykernel>=6.0                   # registers the venv as a Jupyter kernel
 python-dotenv>=1.0               # loads GOOGLE_API_KEY from .env
+pyflakes>=3.0

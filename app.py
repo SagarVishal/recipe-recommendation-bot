@@ -37,30 +37,27 @@ if not (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")):
 
 # --- engine ------------------------------------------------------------------
 
+# A realistic Indian kitchen. The bot is far more useful opening with a
+# stocked pantry than an empty one, and the first reply is meaningful
+# without the user typing anything.
+DEFAULT_PANTRY = {
+    "onion", "tomato", "potato", "ginger", "garlic", "green chillies",
+    "coriander leaves", "curd", "rice", "wheat flour", "besan",
+    "lemon juice", "peas", "carrot",
+}
+
+
 @st.cache_resource(show_spinner=False)
 def get_engine():
-    """Built once per process. Embedding 301 recipes is cached to disk too."""
+    """Loads instantly. Embeddings are optional and built on demand.
+
+    Coverage ranking needs no embeddings at all, so the app is usable from
+    the first second; the semantic term contributes nothing for recipes not
+    yet embedded, and the sidebar offers to embed more.
+    """
     from src.rag import RecipeRAG
-    engine = RecipeRAG()
-    from src.models import chat_model, embed_model
-    st.session_state["models"] = (embed_model(), chat_model())
-    bar = st.progress(0.0, text="Embedding the recipe corpus (first run only)…")
-    note = st.caption(
-        "Paced to stay under Gemini's free-tier limit of 100 requests/minute. "
-        "Takes a few minutes once; after that it's cached and startup is instant. "
-        "Progress is saved, so an interruption resumes rather than restarting."
-    )
 
-    def show(done: int, total: int) -> None:
-        remaining = (total - done) * 60.0 / 85
-        bar.progress(done / total,
-                     text=f"Embedding {done}/{total} recipes — about "
-                          f"{int(remaining // 60)}m {int(remaining % 60)}s left…")
-
-    engine._core_vectors = engine.build_index(progress=show)
-    bar.empty()
-    note.empty()
-    return engine
+    return RecipeRAG()
 
 
 try:

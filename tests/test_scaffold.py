@@ -81,3 +81,18 @@ def test_no_api_key_was_committed():
             continue
         if path.is_file() and path.suffix in {".py", ".ipynb", ".md", ".yaml", ".csv", ".txt"}:
             assert not real_key.search(path.read_text(errors="ignore")), f"API key in {path}"
+
+
+def test_no_undefined_names_anywhere():
+    """A NameError shipped to the browser once: `rag.py` returned a variable
+    that had been renamed. ast.parse catches syntax, not undefined names -
+    pyflakes catches both, so it runs in CI."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pyflakes",
+         str(paths.ROOT / "src"), str(paths.ROOT / "app.py")],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, f"pyflakes findings:\n{result.stdout}"

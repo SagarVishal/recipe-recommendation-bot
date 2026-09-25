@@ -15,11 +15,10 @@ import hashlib
 import os
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
-import pandas as pd
 
 from src import paths
 from src.corpus import coverage, load_recipes, utilisation, vocabulary
@@ -29,7 +28,7 @@ from src.models import chat_model, embed_model
 W_COVERAGE, W_SIMILARITY, W_MISSING, W_REGION, W_USED = 0.50, 0.20, 0.05, 0.15, 0.10
 REGION_PRIOR = {"Gujarati": 1.0, "Punjabi": 0.4}
 
-# Below this, tier 1 has nothing worth offering and we widen - and say so.
+# Below this, nothing in the corpus is a good match - the bot says so.
 FALLBACK_THRESHOLD = 0.34
 CANDIDATES = 5
 
@@ -320,7 +319,7 @@ class RecipeRAG:
         )))
 
         llm = ChatGoogleGenerativeAI(model=chat_model(), temperature=0.2)
-        return llm.invoke(messages).content, candidates, widened
+        return llm.invoke(messages).content, candidates, thin
 
 
 def api_key_present() -> bool:

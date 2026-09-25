@@ -16,5 +16,5 @@ jobs:
       - name: Install test dependencies
         # The heavy ML dependencies aren't needed to run the unit tests,
         # so CI installs only what the tests import. Keeps runs under a minute.
-        run: pip install pytest pandas pyarrow pyyaml numpy
+        run: pip install pytest pandas pyarrow pyyaml numpy pyflakes
       - run: python -m pytest tests -q
