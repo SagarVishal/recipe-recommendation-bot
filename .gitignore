@@ -18,3 +18,4 @@ venv/
 
 # Secrets
 .env
+docs/narration/
