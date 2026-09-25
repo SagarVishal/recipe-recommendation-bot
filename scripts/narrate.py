@@ -14,7 +14,9 @@ depending on however long the speech happens to be.
 from __future__ import annotations
 
 import os
+import re
 import sys
+import time
 import wave
 from pathlib import Path
 
@@ -140,20 +142,49 @@ def main() -> None:
 
     OUT.mkdir(parents=True, exist_ok=True)
     over = []
-    for name, budget, text in LINES:
+    for index, (name, budget, text) in enumerate(LINES):
         path = OUT / f"{name}.wav"
-        seconds = synthesise(client, model, text, path)
+        if path.exists():
+            with wave.open(str(path)) as handle:
+                seconds = handle.getnframes() / handle.getframerate()
+            print(f"  {name:<12} {seconds:>5.1f}s   (already done, skipping)")
+            continue
+
+        # The TTS free tier is rate limited far more tightly than chat. Pace
+        # between calls and back off on 429 rather than dying half way.
+        seconds = None
+        for attempt in range(6):
+            try:
+                seconds = synthesise(client, model, text, path)
+                break
+            except Exception as error:  # noqa: BLE001
+                message = str(error)
+                if "429" not in message and "quota" not in message.lower():
+                    raise
+                match = re.search(r"seconds:\s*(\d+)", message)
+                wait = float(match.group(1)) + 2 if match else 20 * (attempt + 1)
+                print(f"  {name:<12} rate limited, waiting {wait:.0f}s\u2026")
+                time.sleep(wait)
+        if seconds is None:
+            print(f"\n  Stopped at {name}. Run this again in a minute - "
+                  f"finished lines are skipped.")
+            break
+
         flag = ""
         if seconds > budget:
-            flag = f"   OVER by {seconds - budget:.1f}s"
+            flag = f"   over by {seconds - budget:.1f}s"
             over.append((name, seconds, budget))
         print(f"  {name:<12} {seconds:>5.1f}s / {budget:>4.1f}s{flag}")
+        if index < len(LINES) - 1:
+            time.sleep(float(os.environ.get("TTS_PAUSE", "6")))
 
-    print(f"\nWrote {len(LINES)} files to docs/narration/")
-    if over:
-        print("\nSome lines run longer than their slot. That is expected - the "
-              "video will be re-timed around the audio rather than the other "
-              "way round.")
+    done = len(list(OUT.glob("*.wav")))
+    print(f"\n{done} of {len(LINES)} lines in docs/narration/")
+    if done < len(LINES):
+        print("Run the script again to finish the rest - it resumes.")
+    elif over:
+        print("Some lines run longer than their slot; the video gets re-timed "
+              "around the audio, not the other way round.")
 
 
 if __name__ == "__main__":
